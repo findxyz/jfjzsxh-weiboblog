@@ -1,7 +1,8 @@
 # WeiboBlogCrawler — 微博博主微博本地爬虫
 
 把指定微博博主的全部微博抓取到本地 SQLite 数据库的工具。与同源的
-[weibogroup](../weibogroup)（群聊爬虫）技术栈一致、互不依赖，各自独立数据库。
+[WeiboGroupCrawler](https://github.com/findxyz/jfjzsxh-weibogroup)（群聊爬虫）
+技术栈一致、互不依赖，各自独立数据库。
 
 - 全量回填博主历史微博（page=1 翻到空为止，无年限限制）
 - 增量更新：只拉比已存最新一条更新的微博，末条已存则整页停止
