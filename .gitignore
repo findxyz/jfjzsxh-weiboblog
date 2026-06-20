@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+*.pyc
+weibo_blog.db
+*.db-journal
+.pytest_cache/
