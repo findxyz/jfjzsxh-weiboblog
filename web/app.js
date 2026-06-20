@@ -174,18 +174,11 @@ function renderCard(p) {
     html += `<div class="post-text long-text">${escHtml(p.long_text)}</div>`;
   }
 
-  // 图片
+  // 图片：占位符按钮（sinaimg 缩略图防盗链直接 <img> 会 403，改占位+点击看大图）
   if (p.pics && p.pics.length) {
-    html += '<div class="post-pics">';
-    for (const pic of p.pics) {
-      const url = pic.url_bmiddle || pic.url_large || "";
-      const large = pic.url_large || pic.url_bmiddle || "";
-      if (url) {
-        html += `<img src="${escHtml(url)}" data-large="${escHtml(large)}" ` +
-          `onerror="this.onerror=null;this.classList.add('pic-error');this.alt='图片加载失败';this.src=''">`;
-      }
-    }
-    html += "</div>";
+    html += `<div class="post-pics" data-pics='${escHtml(JSON.stringify(p.pics.map(pic => pic.url_large || pic.url_bmiddle || "")))}'>` +
+      `<button class="pics-btn" type="button"><span class="pics-icon">🖼</span> 图片 ${p.pics.length} 张</button>` +
+      `</div>`;
   }
 
   // 元信息
@@ -198,26 +191,59 @@ function renderCard(p) {
 
   card.innerHTML = html;
 
-  // 图片点击 → lightbox
-  card.querySelectorAll(".post-pics img").forEach(img => {
-    img.addEventListener("click", () => openLightbox(img.dataset.large));
-  });
+  // 图片占位符点击 → lightbox（支持多图翻页）
+  const picsEl = card.querySelector(".post-pics");
+  if (picsEl) {
+    let urls = [];
+    try { urls = JSON.parse(picsEl.dataset.pics || "[]"); } catch (e) {}
+    if (urls.length) {
+      picsEl.querySelector(".pics-btn").addEventListener("click", () => openLightbox(urls, 0));
+    }
+  }
   return card;
 }
 
-// ── lightbox ──────────────────────────
+// ── lightbox（支持多图翻页）──────────
 const lightbox = $("lightbox");
-function openLightbox(url) {
-  const stage = lightbox.querySelector(".lightbox-stage");
-  stage.innerHTML = `<img src="${escHtml(url)}" onerror="this.alt='图片加载失败'">`;
+const lbStage = lightbox.querySelector(".lightbox-stage");
+let lbUrls = [];
+let lbIndex = 0;
+
+function openLightbox(urls, index = 0) {
+  lbUrls = urls.filter(u => u);
+  if (!lbUrls.length) return;
+  lbIndex = Math.min(index, lbUrls.length - 1);
+  renderLbImage();
   lightbox.classList.remove("hidden");
 }
+
+function renderLbImage() {
+  const url = lbUrls[lbIndex] || "";
+  const counter = lbUrls.length > 1 ? `${lbIndex + 1} / ${lbUrls.length}` : "";
+  lbStage.innerHTML = `<img src="${escHtml(url)}" alt="图片">` +
+    (counter ? `<div class="lb-counter">${counter}</div>` : "") +
+    (lbIndex > 0 ? `<button class="lb-prev" type="button" title="上一张">‹</button>` : "") +
+    (lbIndex < lbUrls.length - 1 ? `<button class="lb-next" type="button" title="下一张">›</button>` : "");
+  const prev = lbStage.querySelector(".lb-prev");
+  const next = lbStage.querySelector(".lb-next");
+  if (prev) prev.addEventListener("click", (e) => { e.stopPropagation(); lbIndex--; renderLbImage(); });
+  if (next) next.addEventListener("click", (e) => { e.stopPropagation(); lbIndex++; renderLbImage(); });
+}
+
 function closeLightbox() {
   lightbox.classList.add("hidden");
-  lightbox.querySelector(".lightbox-stage").innerHTML = "";
+  lbStage.innerHTML = "";
+  lbUrls = [];
+  lbIndex = 0;
 }
 lightbox.querySelector(".lightbox-backdrop").addEventListener("click", closeLightbox);
 lightbox.querySelector(".lightbox-close").addEventListener("click", closeLightbox);
+// lightbox 内键盘：← → 翻页（Esc 关闭由下方统一监听处理）
+document.addEventListener("keydown", (e) => {
+  if (lightbox.classList.contains("hidden")) return;
+  if (e.key === "ArrowLeft" && lbIndex > 0) { lbIndex--; renderLbImage(); }
+  else if (e.key === "ArrowRight" && lbIndex < lbUrls.length - 1) { lbIndex++; renderLbImage(); }
+});
 
 // ── 搜索浮层 ──────────────────────────
 const searchOverlay = $("search-overlay");
@@ -326,8 +352,22 @@ async function jumpToPost(date, mblogid) {
 
 // ── 初始化 ────────────────────────────
 (async function init() {
-  emptyHint.textContent = "请从左侧选择日期";
-  emptyHint.hidden = false;
   await loadBlogger();
   await loadMonths();
+  // 默认加载最近一天：展开最近月份 → 选中首个日期
+  const firstMonthGrp = dateList.querySelector(".month-group");
+  if (firstMonthGrp) {
+    const month = firstMonthGrp.dataset.month;
+    await toggleMonth(firstMonthGrp, month);  // 展开并加载日期
+    const firstDay = firstMonthGrp.querySelector(".date-item");
+    if (firstDay) {
+      selectDay(firstDay.dataset.date, firstDay);  // 自动选中最近一天
+    } else {
+      emptyHint.textContent = "请从左侧选择日期";
+      emptyHint.hidden = false;
+    }
+  } else {
+    emptyHint.textContent = "无微博数据";
+    emptyHint.hidden = false;
+  }
 })();
