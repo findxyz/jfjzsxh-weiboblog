@@ -431,6 +431,50 @@ async function jumpToPost(date, mblogid) {
   });
 }
 
+// ── 同步按钮（增量抓取，后台子进程）────
+const syncBtn = $("sync-btn");
+let syncPollTimer = null;
+
+syncBtn.addEventListener("click", async () => {
+  syncBtn.disabled = true;
+  syncBtn.textContent = "同步中...";
+  try {
+    const resp = await fetch("/api/sync", { method: "POST" });
+    if (resp.status === 409) {
+      // 已有同步在跑，直接开始轮询
+    } else if (!resp.ok) {
+      throw new Error("同步启动失败");
+    }
+  } catch (e) {
+    syncBtn.disabled = false;
+    syncBtn.textContent = "🔄 同步";
+    setStatus("同步启动失败");
+    return;
+  }
+  // 轮询状态，每 2 秒
+  syncPollTimer = setInterval(pollSync, 2000);
+  pollSync();
+});
+
+async function pollSync() {
+  try {
+    const data = await (await fetch("/api/sync/status")).json();
+    if (!data.running) {
+      clearInterval(syncPollTimer);
+      syncPollTimer = null;
+      if (data.exit_code === 0) {
+        location.reload();  // 同步成功，刷新页面
+      } else {
+        syncBtn.disabled = false;
+        syncBtn.textContent = "🔄 同步";
+        setStatus("同步失败（exit " + data.exit_code + "），请查看日志");
+      }
+    }
+  } catch (e) {
+    // 网络错误，继续轮询
+  }
+}
+
 // ── 初始化 ────────────────────────────
 (async function init() {
   await loadBloggers();

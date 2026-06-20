@@ -9,10 +9,82 @@ import json
 import mimetypes
 import os
 import sqlite3
+import subprocess
+import sys
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
 WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
+PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+
+# ---------- 同步状态（多线程 Handler 共享）----------
+# POST /api/sync 用子进程跑 crawl_blog.py --all 增量抓取；Handler 多线程，
+# 故状态放模块级，用 _sync_lock 保护。_watch 线程收尾时记录 exit_code。
+_sync_state = {"proc": None, "exit_code": None, "output": []}
+_sync_lock = threading.Lock()
+
+
+def _launch_sync():
+    """启动增量抓取子进程 + 监控线程。调用方须已持 _sync_lock 且确认无运行中任务。
+
+    子进程 stdout/stderr 合并捕获，内存缓冲只留最后 200 行；结束时记录 exit_code。
+    running 的判定用「proc 非空且 exit_code 为 None」，避免 poll() 与 exit_code
+    写入之间的竞态（进程已退出但 watcher 尚未记录时仍视为 running）。
+    """
+    output = []
+    proc = subprocess.Popen(
+        [sys.executable, "crawl_blog.py", "--all"],
+        cwd=PROJECT_ROOT,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        env=os.environ.copy(),
+    )
+    _sync_state["proc"] = proc
+    _sync_state["exit_code"] = None
+    _sync_state["output"] = output
+
+    def _watch():
+        try:
+            for raw in iter(proc.stdout.readline, b""):
+                output.append(raw.decode("utf-8", errors="replace").rstrip("\r\n"))
+                if len(output) > 200:
+                    del output[: len(output) - 200]
+        finally:
+            try:
+                proc.stdout.close()
+            except Exception:
+                pass
+            code = proc.wait()
+            with _sync_lock:
+                # 仅当仍是本次子进程时记录，避免被后续新同步覆盖
+                if _sync_state.get("proc") is proc:
+                    _sync_state["exit_code"] = code
+
+    threading.Thread(target=_watch, daemon=True).start()
+
+
+def start_sync():
+    """触发一次增量同步。已在跑返回 False（调用方据此回 409）。"""
+    with _sync_lock:
+        proc = _sync_state["proc"]
+        if proc is not None and _sync_state["exit_code"] is None:
+            return False
+        _launch_sync()
+        return True
+
+
+def sync_status():
+    """返回同步状态快照：{running, exit_code, output}。output 为最后 200 行日志。"""
+    with _sync_lock:
+        proc = _sync_state["proc"]
+        exit_code = _sync_state["exit_code"]
+        output = list(_sync_state["output"])
+    return {
+        "running": proc is not None and exit_code is None,
+        "exit_code": exit_code,
+        "output": "\n".join(output[-200:]),
+    }
 
 
 def _cst_month_bounds(month):
@@ -356,6 +428,20 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._send_text("Not Found", status=404)
 
+    def do_POST(self):
+        # 消费请求体（即便不用），避免 keep-alive 连接复用错乱
+        length = int(self.headers.get("Content-Length", 0) or 0)
+        if length:
+            self.rfile.read(length)
+        path = urlparse(self.path).path
+        if path == "/api/sync":
+            if start_sync():
+                self._send_json({"status": "started"}, status=202)
+            else:
+                self._send_json({"error": "sync already running"}, status=409)
+            return
+        self._send_json({"error": "not found"}, status=404)
+
     def _route_api(self, path, qs):
         conn = self.conn
         # uid 可选过滤参数，months/dates/posts/search 通用（不传=全部博主）
@@ -390,6 +476,8 @@ class Handler(BaseHTTPRequestHandler):
                 end = qs.get("end", [None])[0]
                 limit = int(qs.get("limit", ["1000"])[0])
                 self._send_json(query_search(conn, q, start, end, limit, uid))
+            elif path == "/api/sync/status":
+                self._send_json(sync_status())
             elif path == "/api/img":
                 # 图片代理：带 Referer 取 sinaimg，绕防盗链。SSRF 限制只代理 sinaimg.cn
                 url = qs.get("url", [None])[0]
