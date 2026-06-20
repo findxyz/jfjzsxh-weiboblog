@@ -3,7 +3,7 @@ import json
 import os
 from unittest.mock import patch, MagicMock
 import pytest
-from weibo_blog.crawler import BlogCrawler
+from weibo_blog.crawler import BlogCrawler, _is_logged_in
 from weibo_blog.parser import parse_post
 
 
@@ -119,3 +119,35 @@ def test_crawl_blog_incremental_adds_new(monkeypatch):
     # 增量模式首页也刷新博主信息
     row = conn.execute("SELECT screen_name FROM bloggers WHERE uid=1401527553").fetchone()
     assert row["screen_name"] == "tombkeeper"
+
+
+def _fake_page(url: str):
+    """构造一个 page mock，evaluate("window.location.href") 返回给定 url"""
+    page = MagicMock()
+    page.evaluate.return_value = url
+    return page
+
+
+def test_is_logged_in_rejects_newlogin_page():
+    """登录页 URL 含 newlogin → 未登录（这是之前的误判根因）"""
+    page = _fake_page("https://weibo.com/newlogin?tabtype=weibo&gid=102803&url=https://weibo.com/")
+    assert _is_logged_in(page) is False
+
+
+def test_is_logged_in_accepts_homepage_after_login():
+    """登录成功跳回首页 → 已登录"""
+    page = _fake_page("https://weibo.com/")
+    assert _is_logged_in(page) is True
+
+
+def test_is_logged_in_accepts_user_profile():
+    """登录后访问个人主页 → 已登录"""
+    page = _fake_page("https://weibo.com/u/1401527553")
+    assert _is_logged_in(page) is True
+
+
+def test_is_logged_in_evaluate_raises():
+    """page.evaluate 抛异常（页面已关闭等）→ 视为未登录，不抛出"""
+    page = MagicMock()
+    page.evaluate.side_effect = Exception("page closed")
+    assert _is_logged_in(page) is False

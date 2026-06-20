@@ -245,6 +245,24 @@ def check_playwright() -> bool:
     return True
 
 
+def _is_logged_in(page) -> bool:
+    """判断 weibo.com 当前是否处于登录态。
+
+    判据：登录成功后页面会从登录页跳走，URL 不再含 ``newlogin``；
+    且仍在 weibo.com 主站（而非被重定向到其它域）。
+
+    不依赖 cookie 中的 SUB（未登录态 weibo 也会下发匿名 SUB），
+    也不依赖 ``a[href*="/u/"]``（登录页的热门博主推荐就有大量此类链接）。
+    """
+    try:
+        href = page.evaluate("window.location.href") or ""
+    except Exception:
+        return False
+    if "newlogin" in href:
+        return False
+    return "weibo.com" in href
+
+
 def renew_cookie(db_path: str, headless: bool = False) -> str:
     """用 Playwright 打开 weibo.com 扫码登录，提取 cookie 存入数据库并返回
 
@@ -278,19 +296,11 @@ def renew_cookie(db_path: str, headless: bool = False) -> str:
             page.goto("https://weibo.com", wait_until="domcontentloaded", timeout=30000)
             time.sleep(3)
 
-            # 判断是否已登录：登录后页面会出现用户导航链接，否则停留在登录页
             current_href = page.evaluate("window.location.href")
             log.info("当前 URL: %s", current_href)
 
-            # 登录成功的标志：cookie 里有 SUB 且页面有 /u/ 或 /n/ 链接
-            def _logged_in() -> bool:
-                cookies = ctx.cookies()
-                if not any(c["name"] == "SUB" and c.get("value") for c in cookies):
-                    return False
-                return bool(page.query_selector('a[href*="/u/"], a[href*="/n/"]'))
-
-            if _logged_in():
-                log.info("已有有效 cookie，直接提取")
+            if _is_logged_in(page):
+                log.info("已有有效登录态，直接提取 cookie")
             else:
                 # 截图二维码，无头模式下尝试用系统程序打开
                 page.screenshot(path=QRCODE_PATH)
@@ -308,7 +318,7 @@ def renew_cookie(db_path: str, headless: bool = False) -> str:
                 for _ in range(120):
                     time.sleep(1)
                     try:
-                        if _logged_in():
+                        if _is_logged_in(page):
                             log.info("🔍 检测到扫码登录，正在处理...")
                             try:
                                 page.wait_for_load_state("networkidle", timeout=15000)
