@@ -103,5 +103,50 @@ class BloggerEmptyTest(_ServerTestBase):
         self.assertIn("error", data)
 
 
+class MonthsDatesApiTest(_ServerTestBase):
+    def make_data(self, conn):
+        insert_posts(conn, [
+            {"mblogid": "p1", "post_id": 1, "uid": 1401527553,
+             "text_raw": "hi", "created_at": 1750200000000},  # 2025-06-18
+            {"mblogid": "p2", "post_id": 2, "uid": 1401527553,
+             "text_raw": "yo", "created_at": 1750113600000},  # 2025-06-17
+            {"mblogid": "p3", "post_id": 3, "uid": 1401527553,
+             "text_raw": "x", "created_at": 1750113600000},   # 2025-06-17
+            {"mblogid": "p4", "post_id": 4, "uid": 1401527553,
+             "text_raw": "z", "created_at": 1747430400000},   # 2025-05-17 00:00 CST
+        ])
+
+    def test_months_aggregated_desc(self):
+        status, data = self._get_json("/api/months")
+        self.assertEqual(status, 200)
+        self.assertEqual(data, [
+            {"month": "2025-06", "count": 3},
+            {"month": "2025-05", "count": 1},
+        ])
+
+    def test_dates_for_month_desc(self):
+        status, data = self._get_json("/api/dates?month=2025-06")
+        self.assertEqual(status, 200)
+        self.assertEqual(data, [
+            {"date": "2025-06-18", "count": 1},
+            {"date": "2025-06-17", "count": 2},
+        ])
+
+    def test_dates_other_month_no_leak(self):
+        status, data = self._get_json("/api/dates?month=2025-05")
+        self.assertEqual(status, 200)
+        self.assertEqual(data, [{"date": "2025-05-17", "count": 1}])
+
+    def test_dates_missing_month_returns_400(self):
+        status, data = self._get_json("/api/dates")
+        self.assertEqual(status, 400)
+        self.assertIn("error", data)
+
+    def test_dates_empty_month_returns_empty(self):
+        status, data = self._get_json("/api/dates?month=2024-01")
+        self.assertEqual(status, 200)
+        self.assertEqual(data, [])
+
+
 if __name__ == "__main__":
     unittest.main()

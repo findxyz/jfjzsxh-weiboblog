@@ -62,6 +62,33 @@ def query_blogger(conn):
     }
 
 
+def query_months(conn):
+    """按 CST 月聚合微博数，倒序返回。供左栏初始加载。"""
+    rows = conn.execute(
+        "SELECT strftime('%Y-%m', datetime(created_at/1000,'unixepoch','+8 hours')) AS m, "
+        "COUNT(*) AS c FROM weibo_posts "
+        "GROUP BY m ORDER BY m DESC"
+    ).fetchall()
+    return [{"month": r["m"], "count": r["c"]} for r in rows]
+
+
+def query_month_days(conn, month):
+    """指定月份（YYYY-MM）的每日微博数，倒序返回。
+
+    用 CST 月区间 [start_ms, end_ms) 做 created_at 范围过滤，命中
+    (uid, created_at) 复合索引；每日标签由 date() 表达式给出。
+    """
+    start_ms, end_ms = _cst_month_bounds(month)
+    rows = conn.execute(
+        "SELECT date(datetime(created_at/1000,'unixepoch','+8 hours')) AS d, "
+        "COUNT(*) AS c FROM weibo_posts "
+        "WHERE created_at>=? AND created_at<? "
+        "GROUP BY d ORDER BY d DESC",
+        (start_ms, end_ms),
+    ).fetchall()
+    return [{"date": r["d"], "count": r["c"]} for r in rows]
+
+
 # ---------- HTTP Handler ----------
 
 class Handler(BaseHTTPRequestHandler):
@@ -112,6 +139,14 @@ class Handler(BaseHTTPRequestHandler):
                     self._send_json({"error": "no blogger"}, status=404)
                 else:
                     self._send_json(b)
+            elif path == "/api/months":
+                self._send_json(query_months(conn))
+            elif path == "/api/dates":
+                month = qs.get("month", [None])[0]
+                if not month:
+                    self._send_json({"error": "missing month"}, status=400)
+                else:
+                    self._send_json(query_month_days(conn, month))
             else:
                 self._send_json({"error": "not found"}, status=404)
         except Exception as e:
