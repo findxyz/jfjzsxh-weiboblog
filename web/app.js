@@ -48,7 +48,11 @@ async function getJson(path) {
 
 function linkify(escaped) {
   // 在已转义的文本里把 URL 转链接（http(s):// 完整链接 + http://t.cn 短链）
-  return escaped.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+  // URL 在中文标点（全角括号/逗号/句号等）及半角括号处截断，避免吞掉后续文字
+  return escaped.replace(
+    /(https?:\/\/[^\s<()（）［］【】，。；：、！？·…—]+)/g,
+    '<a href="$1" target="_blank" rel="noopener">$1</a>'
+  );
 }
 
 // ── 博主信息 ──────────────────────────
