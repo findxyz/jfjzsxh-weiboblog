@@ -186,6 +186,16 @@ function renderCard(p) {
     html += `<div class="post-text long-text">${linkify(escHtml(p.long_text))}</div>`;
   }
 
+  // 转发原微博引用块（橙色竖线）
+  if (p.retweeted && p.retweeted.text_raw) {
+    const rt = p.retweeted;
+    const rtUrl = `https://weibo.com/${rt.uid}/${rt.mblogid}`;
+    html += `<div class="post-retweet">` +
+      `<a class="retweet-name" href="${escHtml(rtUrl)}" target="_blank" rel="noopener">@${escHtml(rt.screen_name || "")}</a>` +
+      `<div class="retweet-text">${linkify(escHtml(rt.text_raw))}</div>` +
+      `</div>`;
+  }
+
   // 图片：占位符按钮（sinaimg 缩略图防盗链直接 <img> 会 403，改占位+点击看大图）
   if (p.pics && p.pics.length) {
     html += `<div class="post-pics" data-pics='${escHtml(JSON.stringify(p.pics.map(pic => pic.url_large || pic.url_bmiddle || "")))}'>` +

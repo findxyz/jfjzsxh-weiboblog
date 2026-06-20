@@ -70,6 +70,15 @@ body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 .post-text a { color: #ff8200; text-decoration: none; }
 .post-text a:hover { text-decoration: underline; }
 .post-text.long-text { margin-top: 4px; padding-top: 4px; border-top: 1px dashed #eee; }
+.post-retweet {
+  margin: 8px 0; padding: 8px 12px; background: #fffaf5;
+  border-left: 3px solid #ff8200; border-radius: 0 4px 4px 0;
+}
+.retweet-name { font-size: 13px; font-weight: 600; color: #ff8200; text-decoration: none; display: block; margin-bottom: 4px; }
+.retweet-name:hover { text-decoration: underline; }
+.retweet-text { font-size: 13px; color: #666; white-space: pre-wrap; word-break: break-word; line-height: 1.5; }
+.retweet-text a { color: #ff8200; text-decoration: none; }
+.retweet-text a:hover { text-decoration: underline; }
 .post-pics { margin: 10px 0 6px; }
 .post-video { margin: 6px 0; }
 .pics-btn {

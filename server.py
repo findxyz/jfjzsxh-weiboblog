@@ -133,6 +133,17 @@ def _parse_pics(pics_json):
         return []
 
 
+def _parse_retweeted(retweeted_json):
+    """retweeted_json 字符串解析为原微博对象，空/失败返回 None。"""
+    if not retweeted_json:
+        return None
+    try:
+        obj = json.loads(retweeted_json)
+        return obj if isinstance(obj, dict) else None
+    except (ValueError, TypeError):
+        return None
+
+
 def _cst_date_str(ts_ms):
     """UTC 毫秒 → CST 'YYYY-MM-DD' 字符串。"""
     import datetime
@@ -235,7 +246,8 @@ def query_posts(conn, date):
     start_ms, end_ms = _cst_day_bounds(date)
     rows = conn.execute(
         "SELECT mblogid, uid, text_raw, long_text, is_long_text, pics_json, "
-        "video_url, source, reposts_count, comments_count, attitudes_count, created_at "
+        "video_url, retweeted_json, source, "
+        "reposts_count, comments_count, attitudes_count, created_at "
         "FROM weibo_posts "
         "WHERE created_at>=? AND created_at<? "
         "ORDER BY created_at DESC",
@@ -249,6 +261,7 @@ def query_posts(conn, date):
         "is_long_text": r["is_long_text"],
         "pics": _parse_pics(r["pics_json"]),
         "video_url": r["video_url"],
+        "retweeted": _parse_retweeted(r["retweeted_json"]),
         "source": r["source"],
         "reposts_count": r["reposts_count"],
         "comments_count": r["comments_count"],

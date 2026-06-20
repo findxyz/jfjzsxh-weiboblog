@@ -166,6 +166,10 @@ class PostsApiTest(_ServerTestBase):
             {"mblogid": "a4", "post_id": 4, "uid": 1401527553,
              "text_raw": "看视频", "video_url": "http://video.weibo.com/stream.mp4",
              "created_at": base + 3000},  # 06-17，带视频
+            {"mblogid": "a5", "post_id": 5, "uid": 1401527553,
+             "text_raw": "转发这条",
+             "retweeted_json": '{"post_id":999,"mblogid":"Rorig","text_raw":"原微博内容","uid":1401527553,"screen_name":"tombkeeper","created_at":"Mon Jun 08 08:55:15 +0800 2026"}',
+             "created_at": base + 4000},  # 06-17，转发，最新
             {"mblogid": "a3", "post_id": 3, "uid": 1401527553,
              "text_raw": "次日", "created_at": base + 86400000},  # 06-18
         ])
@@ -175,7 +179,7 @@ class PostsApiTest(_ServerTestBase):
         self.assertEqual(status, 200)
         self.assertEqual(data["date"], "2025-06-17")
         mids = [p["mblogid"] for p in data["posts"]]
-        self.assertEqual(mids, ["a4", "a2", "a1"])  # 倒序，最新在上
+        self.assertEqual(mids, ["a5", "a4", "a2", "a1"])  # 倒序，最新在上
 
     def test_posts_no_leak_across_days(self):
         status, data = self._get_json("/api/posts?date=2025-06-18")
@@ -212,8 +216,8 @@ class PostsApiTest(_ServerTestBase):
         # 返回字段集合（不含 text/HTML 版、不含 raw_json）
         self.assertEqual(set(p.keys()), {
             "mblogid", "uid", "text_raw", "long_text", "is_long_text",
-            "pics", "video_url", "source", "reposts_count", "comments_count",
-            "attitudes_count", "created_at",
+            "pics", "video_url", "retweeted", "source", "reposts_count",
+            "comments_count", "attitudes_count", "created_at",
         })
 
     def test_posts_returns_uid_and_video_url(self):
@@ -225,6 +229,22 @@ class PostsApiTest(_ServerTestBase):
         # 无视频微博 video_url 为空串
         a1 = [p for p in data["posts"] if p["mblogid"] == "a1"][0]
         self.assertEqual(a1["video_url"], "")
+
+    def test_posts_retweeted_parsed_to_object(self):
+        status, data = self._get_json("/api/posts?date=2025-06-17")
+        self.assertEqual(status, 200)
+        a5 = [p for p in data["posts"] if p["mblogid"] == "a5"][0]
+        self.assertEqual(a5["retweeted"], {
+            "post_id": 999,
+            "mblogid": "Rorig",
+            "text_raw": "原微博内容",
+            "uid": 1401527553,
+            "screen_name": "tombkeeper",
+            "created_at": "Mon Jun 08 08:55:15 +0800 2026",
+        })
+        # 非转发微博 retweeted 为 null
+        a1 = [p for p in data["posts"] if p["mblogid"] == "a1"][0]
+        self.assertIsNone(a1["retweeted"])
 
 
 class SearchApiTest(_ServerTestBase):
