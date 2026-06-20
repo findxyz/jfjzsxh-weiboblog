@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+weibo_blog.db
+*.db-journal
+.pytest_cache/
+qrcode.png
+# ZCode 等 agent 误生成的垃圾文件（Windows 保留设备名重定向产物）
+nul
+# 调试临时文件
+_ck.txt
