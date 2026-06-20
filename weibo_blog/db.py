@@ -70,6 +70,7 @@ def init_db(conn: sqlite3.Connection):
         CREATE INDEX IF NOT EXISTS idx_wp_uid   ON weibo_posts(uid);
         CREATE INDEX IF NOT EXISTS idx_wp_ctime ON weibo_posts(created_at);
         CREATE INDEX IF NOT EXISTS idx_wp_pid   ON weibo_posts(post_id);
+        CREATE INDEX IF NOT EXISTS idx_wp_uid_ctime ON weibo_posts(uid, created_at);
     """)
     conn.commit()
 

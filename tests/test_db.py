@@ -102,3 +102,13 @@ def test_get_latest_post_id(mem_db):
         "attitudes_count": 0, "created_at": 2000, "raw_json": "{}",
     })
     assert get_latest_post_id(mem_db, 1401527553) == 200
+
+
+def test_composite_index_uid_ctime_exists(mem_db):
+    """init_db 应建 (uid, created_at) 复合索引，供按日范围查询走索引。"""
+    init_db(mem_db)
+    rows = mem_db.execute(
+        "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='weibo_posts'"
+    ).fetchall()
+    names = {r[0] for r in rows}
+    assert "idx_wp_uid_ctime" in names
