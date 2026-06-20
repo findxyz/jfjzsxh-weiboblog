@@ -40,17 +40,22 @@ playwright    # 可选依赖，仅扫码续期需要
 ```
 weiboblog/
 ├── crawl_blog.py          # CLI 入口（唯一可执行脚本）
+├── server.py              # 消息查看器 web 服务（纯标准库）
 ├── pyproject.toml         # 项目配置 + 依赖
 ├── README.md              # 本文档
 ├── API.md                 # 接口契约（URL/参数/响应，与实现语言无关）
 ├── ARCHITECTURE.md        # 架构 / 数据流 / 跨语言迁移
 ├── weibo_blog.db          # SQLite 数据库（运行时生成，不入库）
 ├── qrcode.png             # 扫码二维码截图（--renew-cookie 生成，可删）
-└── weibo_blog/            # 核心包
-    ├── __init__.py
-    ├── parser.py          # mymblog 单条 JSON → 扁平 dict（纯函数）
-    ├── db.py              # SQLite 建表 + 存取
-    └── crawler.py         # HTTP 客户端 + 翻页 + 长文补全 + cookie 续期
+├── weibo_blog/            # 核心包
+│   ├── __init__.py
+│   ├── parser.py          # mymblog 单条 JSON → 扁平 dict（纯函数）
+│   ├── db.py              # SQLite 建表 + 存取
+│   └── crawler.py         # HTTP 客户端 + 翻页 + 长文补全 + cookie 续期
+└── web/                   # 消息查看器前端（原生 HTML/CSS/JS）
+    ├── index.html
+    ├── app.js
+    └── style.css
 ```
 
 **结构约定：**
@@ -256,7 +261,48 @@ uv run crawl_blog.py --uid 1401527553            # ④ 再跑一次，应「新�
 
 ---
 
-## 10. 测试
+## 10. 消息查看器（web server）
+
+本地只读 web 查看器，浏览已抓取的博主微博。布局与 weibogroup 类似（顶栏 +
+左侧列表 + 右侧内容），但视觉用微博橙 + 卡片流，且更简：无分页、无触顶触底
+加载——点开某日一次展示当日全部微博，倒序（最新在上）。
+
+### 10.1 启动
+
+```bash
+uv run server.py                       # 默认 127.0.0.1:8766，读 weibo_blog.db
+uv run server.py --port 9000           # 自定义端口
+uv run server.py --db D:\path\to.db    # 自定义数据库
+```
+
+浏览器访问 `http://127.0.0.1:8766`。端口 8766 避开 weibogroup 的 8765，
+两个查看器可同时开。
+
+### 10.2 功能
+
+- **顶栏**：博主昵称（微博橙）+ 高级搜索按钮
+- **左侧**：单层月份列表（YYYY-MM 降序），点开展开当月各日（懒加载）
+- **右侧**：卡片流，点开某日一次性展示当日全部微博，最新在上
+- **高级搜索**：关键词（模糊匹配正文）+ 起止日期范围，无发送者筛选
+  （单博主）。点击结果定位到对应微博并高亮闪烁
+- **图片**：缩略图点击放大（lightbox），直接用 sinaimg.cn 原始 URL，
+  不走 server 代理
+
+### 10.3 与 weibogroup 查看器的区别
+
+| 维度 | weibogroup | weiboblog |
+|------|-----------|-----------|
+| 强调色 | Google 蓝 `#1a73e8` | 微博橙 `#ff8200` |
+| 内容形式 | 聊天气泡 | 白卡片 + 投影 |
+| 分页 | 游标分页 + 触顶触底加载 | 无，点日查全部 |
+| 排列 | 升序（新在底） | 倒序（新在上） |
+| 发送者筛选 | 有 | 无（单博主） |
+| 媒体 | server 代理下载 | 原始 URL 直连 |
+| 端口 | 8765 | 8766 |
+
+---
+
+## 11. 测试
 
 ```bash
 uv run pytest tests/ -v
@@ -264,15 +310,18 @@ uv run pytest tests/ -v
 
 覆盖：建表 + cookie 存取、save_blogger/save_post 去重/get_latest_post_id、
 parse_post 各类型字段映射（纯文本/图片/视频/转发/长文标记/source 清洗）、
-BlogCrawler 的 fetch_mymblog/backfill/incremental（mock HTTP）。
+BlogCrawler 的 fetch_mymblog/backfill/incremental（mock HTTP）、
+消息查看器 server 的 5 个 API + 静态资源 + 路径穿越（启动真实端口端到端）。
 
 测试 fixture 来自真实微博 JSON（`tests/fixtures/`）。
 
 ---
 
-## 11. 设计与实现文档
+## 12. 设计与实现文档
 
 - 设计规格：`docs/superpowers/specs/2026-06-20-weiboblog-crawler-design.md`
 - 实现计划：`docs/superpowers/plans/2026-06-20-weiboblog-crawler.md`
+- 查看器设计规格：`docs/superpowers/specs/2026-06-20-weiboblog-viewer-design.md`
+- 查看器实现计划：`docs/superpowers/plans/2026-06-20-weiboblog-viewer.md`
 - 接口契约：[`API.md`](./API.md)
 - 架构与迁移：[`ARCHITECTURE.md`](./ARCHITECTURE.md)
