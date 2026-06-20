@@ -240,9 +240,11 @@ function renderCard(p) {
     const cut = bodyText.search(/\s*\/\/@/);
     if (cut >= 0) bodyText = bodyText.slice(0, cut);
   }
-  html += `<div class="post-text">${linkify(escHtml(bodyText))}</div>`;
+  // 长文微博：text_raw 是 long_text 的截断前缀，只显示 long_text（完整版），避免重复
   if (p.is_long_text && p.long_text) {
-    html += `<div class="post-text long-text">${linkify(escHtml(p.long_text))}</div>`;
+    html += `<div class="post-text">${linkify(escHtml(p.long_text))}</div>`;
+  } else {
+    html += `<div class="post-text">${linkify(escHtml(bodyText))}</div>`;
   }
 
   // 本微博媒体
