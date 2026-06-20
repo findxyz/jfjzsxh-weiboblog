@@ -6,6 +6,24 @@ import time
 import sqlite3
 
 
+# 默认数据库路径，可由 set_db_path 覆盖；get_conn 据此打开连接
+_DB_PATH = "weibo_blog.db"
+
+
+def set_db_path(path: str) -> None:
+    """设置默认数据库路径"""
+    global _DB_PATH
+    _DB_PATH = path
+
+
+def get_conn() -> sqlite3.Connection:
+    """打开默认数据库连接（已建表），供 BlogCrawler / CLI 使用"""
+    conn = sqlite3.connect(_DB_PATH)
+    conn.row_factory = sqlite3.Row
+    init_db(conn)
+    return conn
+
+
 def init_db(conn: sqlite3.Connection):
     """创建所有表与索引（幂等）"""
     conn.executescript("""
