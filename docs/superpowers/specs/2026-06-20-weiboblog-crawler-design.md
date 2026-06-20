@@ -119,9 +119,13 @@ GET https://weibo.com/ajax/statuses/mymblog?uid={uid}&page={page}&feature=0&sinc
 ```
 
 - `feature=0`：全部微博
-- `page`：页码，从 1 开始
-- `since_id`：游标，首次空，后续用上一页 `data.since_id`
-- 响应：`data.since_id`（下页游标）、`data.list[]`（微博数组，新→旧）
+- `page`：页码，从 1 开始，递增取更旧的历史
+- `since_id`：游标，首次空，后续用上一页 `data.since_id`（实测可带可不带，带上与浏览器行为一致更保险）
+- 响应：`data.since_id`（下页游标）、`data.list[]`（微博数组）
+
+**翻页方向（实测确认）**：page 递增 = 取更旧历史。list 内部排列为**旧→新**（首条最旧、末条最新）。页间衔接：page2 首条比 page1 末条更旧。无需 since_id 即可正确翻页，但带上作为下一页游标提示。停止条件：list 为空即到底（微博多的博主可能翻几百页）。
+
+**Cookie 要求（实测确认）**：mymblog/longtext 接口复用微博账号 cookie 即可，**不需要 x-xsrf-token header**（即便 cookie 中无 XSRF-TOKEN 也能返回 200）。直接复用 weibogroup 的 weibo_cookie。
 
 ### 全量回填 `crawl_blog_backfill(uid)`（首次或 --full）
 
@@ -131,7 +135,7 @@ loop:
     resp = fetch_mymblog(uid, page, since_id)
     if data.list 为空: break
     首页提取 user → save_blogger
-    for post in data.list:
+    for post in data.list:           # list 旧→新，逐条处理
         parsed = parse_post(post)
         if parsed.is_long_text: parsed.long_text = fetch_longtext(mblogid)
         save_post(parsed)
@@ -144,21 +148,28 @@ loop:
 
 ### 增量更新 `crawl_blog_incremental(uid)`（默认模式）
 
+list 旧→新，末条为当页最新。增量从 page=1（最新一屏）开始往旧翻，检查每条是否已存：
+
 ```
 page=1, since_id=""
-latest_post_id = get_latest_post_id(uid)
+latest_post_id = get_latest_post_id(uid)   # DB 里已存的最新 post_id
 loop:
     resp = fetch_mymblog(uid, page, since_id)
     if data.list 为空: break
-    for post in data.list:
-        if post.id <= latest_post_id: return   -- 命中已存，增量结束
+    for post in data.list:                   # 旧→新遍历
+        if post.id <= latest_post_id:        # 命中已存（更旧），后续都更旧，可跳过
+            continue
         parsed = parse_post(post)
         if parsed.is_long_text: parsed.long_text = fetch_longtext(mblogid)
         save_post(parsed)
+    # 当页末条（最新）<= latest_post_id → 整页都已知，增量结束
+    if data.list[-1].id <= latest_post_id: return
     since_id = resp.data.since_id
     page += 1
     jitter_sleep(0.5)
 ```
+
+注意：增量方向与全量相同（都从 page=1 往旧翻），因为 mymblog 没有"往新翻"的参数——page=1 永远是最新一屏。增量靠"跳过已存 + 命中整页已知即停"。
 
 ### 模式判断
 
@@ -239,8 +250,8 @@ python crawl_blog.py --all                             # 增量抓取 bloggers �
 5. `test_parse_post_longtext_flag`：isLongText=true 样本，断言 is_long_text=1。
 6. `test_parse_created_at`：断言 `"Wed May 14 22:09:58 +0800 2025"` → 正确 ms。
 7. `test_save_post_dedup`：同 mblogid 存两次，只入库一条。
-8. `test_crawl_blog_backfill`：mock requests，mymblog 返回 2 页 + 空页，断言翻页停止、微博数正确、longtext 补全被调用。
-9. `test_crawl_blog_incremental`：mock mymblog 返回新微博 + 已存微博，断言命中已存即停。
+8. `test_crawl_blog_backfill`：mock requests，mymblog 返回多页（list 旧→新）+ 空页，断言翻页停止、微博数正确、longtext 补全被调用。
+9. `test_crawl_blog_incremental`：mock mymblog 返回新微博 + 已存微博（list 旧→新，末条已存触发整页停止），断言跳过已存、命中即停。
 10. `test_save_blogger_from_first_post`：断言首页 user 字段提取并入库。
 11. `test_cookie_set_get`：断言 cookie 存取 config 表。
 
