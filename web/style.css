@@ -41,7 +41,7 @@ body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 }
 .date-item:hover { background: #fff0e0; }
 .date-item.active { background: #ff8200; color: #fff; }
-.date-item .count { color: #bbb; font-size: 11px; }
+.date-item .count { color: #bbb; font-size: 12px; }
 .date-item.active .count { color: #ffe0b3; }
 
 #viewer { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
@@ -67,6 +67,8 @@ body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 .post-link { float: right; font-size: 12px; color: #ff8200; text-decoration: none; }
 .post-link:hover { text-decoration: underline; }
 .post-text { font-size: 14px; color: #333; white-space: pre-wrap; word-break: break-word; line-height: 1.6; }
+.post-text a { color: #ff8200; text-decoration: none; }
+.post-text a:hover { text-decoration: underline; }
 .post-text.long-text { margin-top: 4px; padding-top: 4px; border-top: 1px dashed #eee; }
 .post-pics { margin: 10px 0 6px; }
 .post-video { margin: 6px 0; }
@@ -74,10 +76,11 @@ body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
   display: inline-flex; align-items: center; gap: 6px;
   padding: 6px 14px; background: #fff5e8; border: 1px solid #ffd9a0;
   border-radius: 16px; cursor: pointer; font-size: 13px; color: #d97000;
+  text-decoration: none;
 }
 .pics-btn:hover { background: #ffe8c8; }
 .pics-icon { font-size: 15px; }
-.post-meta { font-size: 11px; color: #999; margin-top: 8px; padding-top: 8px; border-top: 1px solid #f5f5f5; }
+.post-meta { font-size: 12px; color: #999; margin-top: 8px; padding-top: 8px; border-top: 1px solid #f5f5f5; }
 .post-meta .count { margin-right: 12px; }
 .post-meta .source { color: #bbb; }
 

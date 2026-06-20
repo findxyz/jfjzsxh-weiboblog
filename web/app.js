@@ -46,6 +46,11 @@ async function getJson(path) {
   return resp.json();
 }
 
+function linkify(escaped) {
+  // 在已转义的文本里把 URL 转链接（http(s):// 完整链接 + http://t.cn 短链）
+  return escaped.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+}
+
 // ── 博主信息 ──────────────────────────
 async function loadBlogger() {
   try {
@@ -171,10 +176,10 @@ function renderCard(p) {
   let html = `<span class="post-time">${fmtTime(p.created_at)}</span>` +
     `<a class="post-link" href="${escHtml(weiboUrl)}" target="_blank" rel="noopener" title="在微博查看">原微博 ↗</a>`;
 
-  // 正文
-  html += `<div class="post-text">${escHtml(p.text_raw)}</div>`;
+  // 正文（URL 转可点击链接，含 t.cn 短链）
+  html += `<div class="post-text">${linkify(escHtml(p.text_raw))}</div>`;
   if (p.is_long_text && p.long_text) {
-    html += `<div class="post-text long-text">${escHtml(p.long_text)}</div>`;
+    html += `<div class="post-text long-text">${linkify(escHtml(p.long_text))}</div>`;
   }
 
   // 图片：占位符按钮（sinaimg 缩略图防盗链直接 <img> 会 403，改占位+点击看大图）
@@ -266,14 +271,13 @@ const searchStatus = $("search-status");
 const searchResults = $("search-results");
 
 function openSearch() {
-  // 默认起止：最近 3 个月
-  const today = new Date();
-  const end = today.toISOString().slice(0, 10);
-  const startD = new Date(today.getTime() - 90 * 86400000);
-  searchEnd.value = end;
-  searchStart.value = startD.toISOString().slice(0, 10);
-  searchStatus.textContent = "";
-  searchResults.innerHTML = "";
+  // 仅首次打开填默认起止（最近 3 个月），重开保留上次关键词/结果，便于继续查看
+  if (!searchStart.value || !searchEnd.value) {
+    const today = new Date();
+    searchEnd.value = today.toISOString().slice(0, 10);
+    const startD = new Date(today.getTime() - 90 * 86400000);
+    searchStart.value = startD.toISOString().slice(0, 10);
+  }
   searchOverlay.hidden = false;
   searchKeyword.focus();
 }
