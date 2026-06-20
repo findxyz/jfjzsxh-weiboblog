@@ -5,6 +5,7 @@
     python crawl_blog.py --set-cookie 'SUB=xxx; ...'   # 设置 cookie
     python crawl_blog.py --uid 1401527553               # 增量抓取
     python crawl_blog.py --uid 1401527553 --full        # 全量回填
+    python crawl_blog.py --uid 1401527553 --full --start-page 963  # 断点续抓
     python crawl_blog.py --all                          # 增量抓取所有已存博主
     python crawl_blog.py --renew-cookie                 # 浏览器扫码续期 cookie
     python crawl_blog.py --check-playwright             # 检查 Playwright 环境就绪

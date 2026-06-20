@@ -40,7 +40,8 @@ playwright    # 可选依赖，仅扫码续期需要
 ```
 weiboblog/
 ├── crawl_blog.py          # CLI 入口（唯一可执行脚本）
-├── server.py              # 消息查看器 web 服务（纯标准库）
+├── server.py              # 消息查看器 web 服务（纯标准库 + requests 图片代理）
+├── backfill_retweet_media.py  # 一次性脚本：回填转发原微博的 pics/video
 ├── pyproject.toml         # 项目配置 + 依赖
 ├── README.md              # 本文档
 ├── API.md                 # 接口契约（URL/参数/响应，与实现语言无关）
@@ -120,13 +121,14 @@ uv run crawl_blog.py --uid 1401527553
 |------|------|
 | `uv run crawl_blog.py --uid 1401527553` | 抓取指定博主。有已存数据走**增量**，无则自动**全量回填**。 |
 | `uv run crawl_blog.py --uid 1401527553 --full` | 强制**全量回填**（从 page=1 翻到空为止）。 |
+| `uv run crawl_blog.py --uid 1401527553 --full --start-page 963` | 断点续抓：从 page 963 继续（如上次 414 停在 962）。仅 `--full` 有效。 |
 | `uv run crawl_blog.py --all` | 增量抓取数据库中所有已存博主。 |
 
 **两种抓取模式：**
 
 | 模式 | 触发条件 | 行为 | 停止条件 |
 |------|---------|------|---------|
-| 全量回填 `--full` | 首次无数据 / 显式 `--full` | page=1 → 递增翻到空 | list 为空 |
+| 全量回填 `--full` | 首次无数据 / 显式 `--full` | page=1 → 递增翻到空 | list 为空 / 414 优雅停止 |
 | 增量 | 有已存数据且不带 `--full` | page=1 往旧翻，跳过 `post_id <= latest` | 当页末条 `post_id <= latest` |
 
 **抓取行为要点：**
@@ -137,6 +139,9 @@ uv run crawl_blog.py --uid 1401527553
 - 长文（`isLongText=true`）逐条调 longtext 接口补全 `long_text` 字段。
 - 首页第一条的 `user` 字段用于提取博主信息入库 `bloggers` 表。
 - 请求间带抖动 `_jitter_sleep(0.5s ± 20%)`，规避固定间隔频控。
+- `since_id` 是服务端分页游标，必须回传；深翻（数百页）偶发 414 Request-URI
+  Too Large 时，`fetch_mymblog` 自动降级重试一次（去 since_id 仅用 page），仍 414
+  则优雅停止保留已抓数据。之后可用 `--start-page` 断点续抓。
 
 ### 4.3 关于全量回填的耗时
 
@@ -144,6 +149,8 @@ uv run crawl_blog.py --uid 1401527553
 **400 页 / 9 分钟**（含长文补全），总量大的博主可能需要 **30-40 分钟**。
 
 - 数据逐条 commit，**中途 Ctrl+C 不丢数据**，已写入的都保留。
+- 深翻撞 414 会优雅停止（数据不丢），用 `--start-page <上次页+1>` 续抓，已存的靠
+  mblogid 去重跳过。
 - 重跑 `--full` 时已存微博靠 mblogid 去重跳过入库，但 longtext 会重新请求一遍
   （当前未做"整页已存则跳过"优化），所以重跑较慢但结果正确。
 
@@ -176,7 +183,7 @@ uv run crawl_blog.py --uid 1401527553
 | `long_text` | 长文全文（非长文为空） |
 | `pics_json` | `[{pid, url_large, url_bmiddle, w, h}]` 精简数组 |
 | `video_url` | 视频直链（stream_url） |
-| `retweeted_json` | 转发原微博精简 `{post_id, mblogid, text_raw, uid, screen_name, created_at}` |
+| `retweeted_json` | 转发原微博精简 `{post_id, mblogid, text_raw, uid, screen_name, created_at, pics, video_url}` |
 | `created_at` | 毫秒时间戳 |
 | `raw_json` | 原始 JSON 永久保留，便于重新解析 |
 
@@ -280,24 +287,29 @@ uv run server.py --db D:\path\to.db    # 自定义数据库
 
 ### 10.2 功能
 
-- **顶栏**：博主昵称（微博橙）+ 高级搜索按钮
+- **顶栏**：博主下拉选择器（可切换博主/查看全部）+ 高级搜索按钮
 - **左侧**：单层月份列表（YYYY-MM 降序），点开展开当月各日（懒加载）
-- **右侧**：卡片流，点开某日一次性展示当日全部微博，最新在上
-- **高级搜索**：关键词（模糊匹配正文）+ 起止日期范围，无发送者筛选
-  （单博主）。点击结果定位到对应微博并高亮闪烁
-- **图片**：缩略图点击放大（lightbox），直接用 sinaimg.cn 原始 URL，
-  不走 server 代理
+- **右侧**：卡片流，点开某日一次性展示当日全部微博，最新在上；进入时自动加载最近一天
+- **微博卡片**：正文（含 t.cn 短链等 URL 可点击）+ 长文完整版 + 图片/视频占位符
+  + 转发原微博引用块（橙色竖线，含原微博正文与媒体）+ 互动数/来源 + 「原微博 ↗」跳转链接
+- **图片**：占位符按钮「🖼 图片 N 张」，点击 lightbox 查看大图（多图可翻页）。
+  sinaimg 防盗链，由 server `/api/img` 代理带 Referer 取图
+- **视频**：占位符按钮「🎬 视频」，点击跳微博页观看（stream_url 浏览器多不能直播）
+- **高级搜索**：关键词（模糊匹配正文）+ 起止日期范围，按当前选中博主过滤。
+  点击结果定位到对应微博并高亮闪烁；重开浮层保留上次关键词与结果
+- **博主切换**：选择器切换时重载月份列表与内容，months/dates/posts/search 均按 uid 过滤
 
 ### 10.3 与 weibogroup 查看器的区别
 
 | 维度 | weibogroup | weiboblog |
 |------|-----------|-----------|
 | 强调色 | Google 蓝 `#1a73e8` | 微博橙 `#ff8200` |
-| 内容形式 | 聊天气泡 | 白卡片 + 投影 |
+| 内容形式 | 聊天气泡 | 白卡片 + 投影 + 橙色左边框 |
 | 分页 | 游标分页 + 触顶触底加载 | 无，点日查全部 |
 | 排列 | 升序（新在底） | 倒序（新在上） |
-| 发送者筛选 | 有 | 无（单博主） |
-| 媒体 | server 代理下载 | 原始 URL 直连 |
+| 账号切换 | 群选择器 | 博主选择器（uid 过滤） |
+| 媒体 | server 代理下载群聊媒体 | server 代理 sinaimg 图片 + 视频跳微博页 |
+| 转发展示 | 无 | 引用块（原微博正文+媒体） |
 | 端口 | 8765 | 8766 |
 
 ---
