@@ -8,7 +8,12 @@ body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
   display: flex; gap: 12px; align-items: center; padding: 10px 16px;
   background: #fff; border-bottom: 1px solid #ff8200; flex-shrink: 0;
 }
-#blogger-name { font-weight: 700; font-size: 16px; color: #ff8200; }
+#blogger-select {
+  font-weight: 700; font-size: 15px; color: #ff8200;
+  padding: 4px 8px; border: 1px solid #ffd9a0; border-radius: 4px;
+  background: #fffaf5; cursor: pointer; max-width: 200px;
+}
+#blogger-select:focus { outline: 1px solid #ff8200; }
 #search-btn {
   padding: 0 14px; height: 28px; cursor: pointer; background: #ff8200; color: #fff;
   border: none; border-radius: 4px; font-size: 13px; line-height: 1;

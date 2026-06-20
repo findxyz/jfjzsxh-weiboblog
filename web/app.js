@@ -5,13 +5,15 @@
  */
 
 const $ = (id) => document.getElementById(id);
-const bloggerName = $("blogger-name");
+const bloggerSelect = $("blogger-select");
 const statusEl = $("status");
 const dateList = $("date-list");
 const dayIndicator = $("day-indicator");
 const postList = $("post-list");
 const emptyHint = $("empty-hint");
 
+// 当前选中博主 uid（null=全部）；切换博主时月份/日期请求带此 uid
+let currentUid = null;
 // 月份日期缓存：{ "2025-06": [{date,count}, ...] }
 const monthCache = {};
 let currentDay = null;
@@ -55,27 +57,59 @@ function linkify(escaped) {
   );
 }
 
-// ── 博主信息 ──────────────────────────
-async function loadBlogger() {
+// ── 博主列表（顶栏选择器）──────────────
+async function loadBloggers() {
+  let bloggers;
   try {
-    const b = await getJson("/api/blogger");
-    bloggerName.textContent = b.screen_name || `uid:${b.uid}`;
-    bloggerName.title = b.verified ? "已认证" : "";
+    bloggers = await getJson("/api/bloggers");
   } catch (e) {
-    if (String(e).includes("404")) {
-      bloggerName.textContent = "（无博主数据，请先抓取）";
-    } else {
-      bloggerName.textContent = "加载失败";
-      setStatus("博主信息加载失败");
-    }
+    bloggerSelect.innerHTML = '<option>加载失败</option>';
+    return;
+  }
+  bloggerSelect.innerHTML = "";
+  // 「全部」选项（uid 空 = 不过滤）
+  const allOpt = document.createElement("option");
+  allOpt.value = "";
+  allOpt.textContent = "全部博主";
+  bloggerSelect.appendChild(allOpt);
+  for (const b of bloggers) {
+    const opt = document.createElement("option");
+    opt.value = b.uid;
+    opt.textContent = b.screen_name || `uid:${b.uid}`;
+    bloggerSelect.appendChild(opt);
+  }
+  // 默认选第一个博主（单博主场景最自然）
+  if (bloggers.length) {
+    bloggerSelect.value = bloggers[0].uid;
+    currentUid = bloggers[0].uid;
   }
 }
+
+bloggerSelect.addEventListener("change", async () => {
+  const v = bloggerSelect.value;
+  currentUid = v ? Number(v) : null;
+  // 切换博主：清空缓存与内容，重载月份，自动加载最近一天
+  for (const k of Object.keys(monthCache)) delete monthCache[k];
+  currentDay = null;
+  postList.innerHTML = "";
+  dayIndicator.textContent = "";
+  emptyHint.hidden = true;
+  await loadMonths();
+  const firstMonthGrp = dateList.querySelector(".month-group");
+  if (firstMonthGrp) {
+    await toggleMonth(firstMonthGrp, firstMonthGrp.dataset.month);
+    const firstDay = firstMonthGrp.querySelector(".date-item");
+    if (firstDay) selectDay(firstDay.dataset.date, firstDay);
+    else { emptyHint.textContent = "请从左侧选择日期"; emptyHint.hidden = false; }
+  } else { emptyHint.textContent = "无微博数据"; emptyHint.hidden = false; }
+});
 
 // ── 月份列表 ──────────────────────────
 async function loadMonths() {
   let months;
   try {
-    months = await getJson("/api/months");
+    const uidParam = currentUid !== null ? `&uid=${currentUid}` : "";
+    months = await getJson(`/api/months?${uidParam}`);
   } catch (e) {
     setStatus("月份列表加载失败");
     return;
@@ -107,7 +141,8 @@ async function toggleMonth(grp, month) {
   }
   daysEl.innerHTML = '<div style="padding:8px 24px;color:#bbb;font-size:12px">加载中…</div>';
   try {
-    const days = await getJson(`/api/dates?month=${encodeURIComponent(month)}`);
+    const uidParam = currentUid !== null ? `&uid=${currentUid}` : "";
+    const days = await getJson(`/api/dates?month=${encodeURIComponent(month)}${uidParam}`);
     monthCache[month] = days;
     renderDays(daysEl, days);
   } catch (e) {
@@ -145,7 +180,8 @@ async function selectDay(date, itemEl) {
 
   let data;
   try {
-    data = await getJson(`/api/posts?date=${encodeURIComponent(date)}`);
+    const uidParam = currentUid !== null ? `&uid=${currentUid}` : "";
+    data = await getJson(`/api/posts?date=${encodeURIComponent(date)}${uidParam}`);
   } catch (e) {
     dayIndicator.textContent = date;
     postList.innerHTML = "";
@@ -340,6 +376,7 @@ async function doSearch() {
   params.set("q", q);
   if (start) params.set("start", start);
   if (end) params.set("end", end);
+  if (currentUid !== null) params.set("uid", currentUid);
   params.set("limit", "1000");
   searchStatus.textContent = "搜索中…";
   searchResults.innerHTML = "";
@@ -394,7 +431,7 @@ async function jumpToPost(date, mblogid) {
 
 // ── 初始化 ────────────────────────────
 (async function init() {
-  await loadBlogger();
+  await loadBloggers();
   await loadMonths();
   // 默认加载最近一天：展开最近月份 → 选中首个日期
   const firstMonthGrp = dateList.querySelector(".month-group");

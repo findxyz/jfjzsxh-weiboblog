@@ -337,6 +337,56 @@ class SearchApiTest(_ServerTestBase):
         self.assertEqual(data["total"], 0)
 
 
+class BloggerFilterApiTest(_ServerTestBase):
+    """多博主场景：uid 过滤。months/dates/posts/search 带 uid 只返回该博主数据。"""
+    def make_data(self, conn):
+        insert_blogger(conn, 1401527553, "tombkeeper")
+        insert_blogger(conn, 999, "other")
+        base = 1750113600000  # 2025-06-17 00:00 CST
+        insert_posts(conn, [
+            {"mblogid": "t1", "post_id": 1, "uid": 1401527553,
+             "text_raw": "tombkeeper 的微博", "created_at": base},
+            {"mblogid": "o1", "post_id": 2, "uid": 999,
+             "text_raw": "other 的微博", "created_at": base + 1000},
+        ])
+
+    def test_bloggers_returns_all(self):
+        status, data = self._get_json("/api/bloggers")
+        self.assertEqual(status, 200)
+        names = [b["screen_name"] for b in data]
+        self.assertEqual(names, ["other", "tombkeeper"])  # 按昵称排序
+
+    def test_months_filtered_by_uid(self):
+        # 不带 uid：两个博主合计
+        status, data = self._get_json("/api/months")
+        self.assertEqual(status, 200)
+        self.assertEqual(data, [{"month": "2025-06", "count": 2}])
+        # 带 uid=1401527553：只 tombkeeper 1 条
+        status, data = self._get_json("/api/months?uid=1401527553")
+        self.assertEqual(status, 200)
+        self.assertEqual(data, [{"month": "2025-06", "count": 1}])
+
+    def test_posts_filtered_by_uid(self):
+        status, data = self._get_json("/api/posts?date=2025-06-17&uid=999")
+        self.assertEqual(status, 200)
+        mids = [p["mblogid"] for p in data["posts"]]
+        self.assertEqual(mids, ["o1"])
+
+    def test_search_filtered_by_uid(self):
+        from urllib.parse import quote
+        # 不带 uid：两条都命中"微博"
+        path = f"/api/search?q={quote('微博')}&limit=1000"
+        status, data = self._get_json(path)
+        self.assertEqual(status, 200)
+        self.assertEqual(data["total"], 2)
+        # 带 uid=1401527553：只 tombkeeper 1 条
+        path = f"/api/search?q={quote('微博')}&uid=1401527553&limit=1000"
+        status, data = self._get_json(path)
+        self.assertEqual(status, 200)
+        self.assertEqual(data["total"], 1)
+        self.assertEqual(data["results"][0]["mblogid"], "t1")
+
+
 class ImgProxyApiTest(_ServerTestBase):
     """/api/img?url= 代理 sinaimg.cn 图片，带 Referer 绕防盗链。
 

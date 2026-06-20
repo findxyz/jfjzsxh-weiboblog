@@ -95,30 +95,60 @@ def query_blogger(conn):
     }
 
 
-def query_months(conn):
-    """按 CST 月聚合微博数，倒序返回。供左栏初始加载。"""
+def query_bloggers(conn):
+    """所有博主列表（供顶栏选择器）。按昵称排序。"""
     rows = conn.execute(
-        "SELECT strftime('%Y-%m', datetime(created_at/1000,'unixepoch','+8 hours')) AS m, "
-        "COUNT(*) AS c FROM weibo_posts "
-        "GROUP BY m ORDER BY m DESC"
+        "SELECT uid, screen_name, profile_url, verified FROM bloggers ORDER BY screen_name"
     ).fetchall()
+    return [{
+        "uid": r["uid"],
+        "screen_name": r["screen_name"],
+        "profile_url": r["profile_url"],
+        "verified": r["verified"],
+    } for r in rows]
+
+
+def query_months(conn, uid=None):
+    """按 CST 月聚合微博数，倒序返回。供左栏初始加载。uid 非空时按博主过滤。"""
+    if uid is not None:
+        rows = conn.execute(
+            "SELECT strftime('%Y-%m', datetime(created_at/1000,'unixepoch','+8 hours')) AS m, "
+            "COUNT(*) AS c FROM weibo_posts WHERE uid=? "
+            "GROUP BY m ORDER BY m DESC",
+            (uid,),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT strftime('%Y-%m', datetime(created_at/1000,'unixepoch','+8 hours')) AS m, "
+            "COUNT(*) AS c FROM weibo_posts "
+            "GROUP BY m ORDER BY m DESC"
+        ).fetchall()
     return [{"month": r["m"], "count": r["c"]} for r in rows]
 
 
-def query_month_days(conn, month):
-    """指定月份（YYYY-MM）的每日微博数，倒序返回。
+def query_month_days(conn, month, uid=None):
+    """指定月份（YYYY-MM）的每日微博数，倒序返回。uid 非空时按博主过滤。
 
     用 CST 月区间 [start_ms, end_ms) 做 created_at 范围过滤，命中
     (uid, created_at) 复合索引；每日标签由 date() 表达式给出。
     """
     start_ms, end_ms = _cst_month_bounds(month)
-    rows = conn.execute(
-        "SELECT date(datetime(created_at/1000,'unixepoch','+8 hours')) AS d, "
-        "COUNT(*) AS c FROM weibo_posts "
-        "WHERE created_at>=? AND created_at<? "
-        "GROUP BY d ORDER BY d DESC",
-        (start_ms, end_ms),
-    ).fetchall()
+    if uid is not None:
+        rows = conn.execute(
+            "SELECT date(datetime(created_at/1000,'unixepoch','+8 hours')) AS d, "
+            "COUNT(*) AS c FROM weibo_posts "
+            "WHERE uid=? AND created_at>=? AND created_at<? "
+            "GROUP BY d ORDER BY d DESC",
+            (uid, start_ms, end_ms),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT date(datetime(created_at/1000,'unixepoch','+8 hours')) AS d, "
+            "COUNT(*) AS c FROM weibo_posts "
+            "WHERE created_at>=? AND created_at<? "
+            "GROUP BY d ORDER BY d DESC",
+            (start_ms, end_ms),
+        ).fetchall()
     return [{"date": r["d"], "count": r["c"]} for r in rows]
 
 
@@ -176,8 +206,8 @@ def _snippet(text, q, span=30):
             + text[idx + len(q):end] + suffix)
 
 
-def query_search(conn, q, start, end, limit):
-    """跨日期内容搜索（text_raw 与 long_text OR）。
+def query_search(conn, q, start, end, limit, uid=None):
+    """跨日期内容搜索（text_raw 与 long_text OR）。uid 非空时按博主过滤。
 
     - spec：搜索只搜内容（关键词 + 时间范围），故 q 为空 → 直接返回空，
       不做纯范围浏览（避免全表扫描，也与前端「无关键词不发请求」一致）。
@@ -193,6 +223,9 @@ def query_search(conn, q, start, end, limit):
 
     conds = []
     params = []
+    if uid is not None:
+        conds.append("uid = ?")
+        params.append(uid)
     if start is not None:
         conds.append("created_at >= ?")
         params.append(_cst_day_bounds(start)[0])
@@ -236,23 +269,34 @@ def query_search(conn, q, start, end, limit):
     return {"results": results, "total": total}
 
 
-def query_posts(conn, date):
-    """某 CST 日期的全部微博，倒序（最新在上）。
+def query_posts(conn, date, uid=None):
+    """某 CST 日期的全部微博，倒序（最新在上）。uid 非空时按博主过滤。
 
     用 CST 当日区间 [start_ms, end_ms) 做 created_at 范围过滤，命中
     (uid, created_at) 复合索引。pics_json 在 server 端解析成数组返回。
     无数据返回空 posts 列表（非 404）。
     """
     start_ms, end_ms = _cst_day_bounds(date)
-    rows = conn.execute(
-        "SELECT mblogid, uid, text_raw, long_text, is_long_text, pics_json, "
-        "video_url, retweeted_json, source, "
-        "reposts_count, comments_count, attitudes_count, created_at "
-        "FROM weibo_posts "
-        "WHERE created_at>=? AND created_at<? "
-        "ORDER BY created_at DESC",
-        (start_ms, end_ms),
-    ).fetchall()
+    if uid is not None:
+        rows = conn.execute(
+            "SELECT mblogid, uid, text_raw, long_text, is_long_text, pics_json, "
+            "video_url, retweeted_json, source, "
+            "reposts_count, comments_count, attitudes_count, created_at "
+            "FROM weibo_posts "
+            "WHERE uid=? AND created_at>=? AND created_at<? "
+            "ORDER BY created_at DESC",
+            (uid, start_ms, end_ms),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT mblogid, uid, text_raw, long_text, is_long_text, pics_json, "
+            "video_url, retweeted_json, source, "
+            "reposts_count, comments_count, attitudes_count, created_at "
+            "FROM weibo_posts "
+            "WHERE created_at>=? AND created_at<? "
+            "ORDER BY created_at DESC",
+            (start_ms, end_ms),
+        ).fetchall()
     posts = [{
         "mblogid": r["mblogid"],
         "uid": r["uid"],
@@ -314,33 +358,38 @@ class Handler(BaseHTTPRequestHandler):
 
     def _route_api(self, path, qs):
         conn = self.conn
+        # uid 可选过滤参数，months/dates/posts/search 通用（不传=全部博主）
+        uid_str = qs.get("uid", [None])[0]
+        uid = int(uid_str) if uid_str not in (None, "") else None
         try:
-            if path == "/api/blogger":
+            if path == "/api/bloggers":
+                self._send_json(query_bloggers(conn))
+            elif path == "/api/blogger":
                 b = query_blogger(conn)
                 if b is None:
                     self._send_json({"error": "no blogger"}, status=404)
                 else:
                     self._send_json(b)
             elif path == "/api/months":
-                self._send_json(query_months(conn))
+                self._send_json(query_months(conn, uid))
             elif path == "/api/dates":
                 month = qs.get("month", [None])[0]
                 if not month:
                     self._send_json({"error": "missing month"}, status=400)
                 else:
-                    self._send_json(query_month_days(conn, month))
+                    self._send_json(query_month_days(conn, month, uid))
             elif path == "/api/posts":
                 date = qs.get("date", [None])[0]
                 if not date:
                     self._send_json({"error": "missing date"}, status=400)
                 else:
-                    self._send_json(query_posts(conn, date))
+                    self._send_json(query_posts(conn, date, uid))
             elif path == "/api/search":
                 q = qs.get("q", [""])[0] or ""
                 start = qs.get("start", [None])[0]
                 end = qs.get("end", [None])[0]
                 limit = int(qs.get("limit", ["1000"])[0])
-                self._send_json(query_search(conn, q, start, end, limit))
+                self._send_json(query_search(conn, q, start, end, limit, uid))
             elif path == "/api/img":
                 # 图片代理：带 Referer 取 sinaimg，绕防盗链。SSRF 限制只代理 sinaimg.cn
                 url = qs.get("url", [None])[0]
