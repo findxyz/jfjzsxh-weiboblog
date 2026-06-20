@@ -214,5 +214,95 @@ class PostsApiTest(_ServerTestBase):
         })
 
 
+class SearchApiTest(_ServerTestBase):
+    BASE = 1750113600000  # 2025-06-17 00:00 CST
+    START = "2025-06-16"  # 宽区间，覆盖全部
+    END = "2025-06-18"
+
+    def make_data(self, conn):
+        base = self.BASE
+        insert_posts(conn, [
+            {"mblogid": "s1", "post_id": 1, "uid": 1401527553,
+             "text_raw": "今天天气不错", "created_at": base},
+            {"mblogid": "s2", "post_id": 2, "uid": 1401527553,
+             "text_raw": "天气真好啊天气", "created_at": base + 1000},
+            {"mblogid": "s3", "post_id": 3, "uid": 1401527553,
+             "text_raw": "无关键词", "long_text": "长文里有天气二字",
+             "created_at": base + 2000},
+            {"mblogid": "s4", "post_id": 4, "uid": 1401527553,
+             "text_raw": "含通配符 50% 折扣", "created_at": base + 3000},
+        ])
+
+    def test_search_hits_text_raw_and_long_text(self):
+        from urllib.parse import quote
+        path = f"/api/search?q={quote('天气')}&start={self.START}&end={self.END}&limit=1000"
+        status, data = self._get_json(path)
+        self.assertEqual(status, 200)
+        mids = [r["mblogid"] for r in data["results"]]
+        self.assertEqual(mids, ["s3", "s2", "s1"])  # 倒序；s3 命中 long_text
+
+    def test_search_snippet_has_markers(self):
+        from urllib.parse import quote
+        path = f"/api/search?q={quote('天气')}&start={self.START}&end={self.END}&limit=1000"
+        status, data = self._get_json(path)
+        self.assertEqual(status, 200)
+        # s1 命中 text_raw，snippet 含 \x00 \x01 标记
+        s1 = [r for r in data["results"] if r["mblogid"] == "s1"][0]
+        self.assertIn("\x00天气\x01", s1["snippet"])
+
+    def test_search_result_has_date_field(self):
+        from urllib.parse import quote
+        path = f"/api/search?q={quote('天气')}&start={self.START}&end={self.END}&limit=1000"
+        status, data = self._get_json(path)
+        self.assertEqual(status, 200)
+        s1 = [r for r in data["results"] if r["mblogid"] == "s1"][0]
+        self.assertEqual(s1["date"], "2025-06-17")
+        self.assertIn("created_at", s1)
+
+    def test_search_escapes_like_wildcards(self):
+        # 搜 "50%"，% 应被转义为字面量，只匹配 s4
+        from urllib.parse import quote
+        path = f"/api/search?q={quote('50%')}&start={self.START}&end={self.END}&limit=1000"
+        status, data = self._get_json(path)
+        self.assertEqual(status, 200)
+        mids = [r["mblogid"] for r in data["results"]]
+        self.assertEqual(mids, ["s4"])
+
+    def test_search_range_filter(self):
+        # 关键词"天气"在 06-17 有命中（s1,s2,s3，见上）；把范围限到 06-18 → 无命中，
+        # 证明时间范围过滤生效（不加范围时返回 3 条，加 06-18 范围返回 0 条）
+        from urllib.parse import quote
+        path = f"/api/search?q={quote('天气')}&start=2025-06-18&end=2025-06-19&limit=1000"
+        status, data = self._get_json(path)
+        self.assertEqual(status, 200)
+        self.assertEqual(data["results"], [])
+        self.assertEqual(data["total"], 0)
+
+    def test_search_limit_truncates_returns_total(self):
+        # limit=2，命中 3 条（天气），返回 2 条但 total=3
+        from urllib.parse import quote
+        path = f"/api/search?q={quote('天气')}&start={self.START}&end={self.END}&limit=2"
+        status, data = self._get_json(path)
+        self.assertEqual(status, 200)
+        self.assertEqual(len(data["results"]), 2)
+        self.assertEqual(data["total"], 3)
+
+    def test_search_no_match_empty(self):
+        from urllib.parse import quote
+        path = f"/api/search?q={quote('不存在')}&start={self.START}&end={self.END}&limit=1000"
+        status, data = self._get_json(path)
+        self.assertEqual(status, 200)
+        self.assertEqual(data["results"], [])
+        self.assertEqual(data["total"], 0)
+
+    def test_search_no_q_returns_empty(self):
+        # spec：搜索只搜内容（关键词 + 时间范围），无 q → 空结果（不做纯范围浏览）
+        path = "/api/search?start=2025-06-16&end=2025-06-18&limit=1000"
+        status, data = self._get_json(path)
+        self.assertEqual(status, 200)
+        self.assertEqual(data["results"], [])
+        self.assertEqual(data["total"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()

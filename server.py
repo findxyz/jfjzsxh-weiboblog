@@ -100,6 +100,98 @@ def _parse_pics(pics_json):
         return []
 
 
+def _cst_date_str(ts_ms):
+    """UTC 毫秒 → CST 'YYYY-MM-DD' 字符串。"""
+    import datetime
+    dt = datetime.datetime.fromtimestamp(ts_ms / 1000, datetime.timezone.utc) + datetime.timedelta(hours=8)
+    return dt.strftime("%Y-%m-%d")
+
+
+def _escape_like(s):
+    """转义 LIKE 通配符 % _ \\，配合 ESCAPE '\\' 使用。"""
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _snippet(text, q, span=30):
+    """截取关键词前后各 span 字，关键词用 \\x00/\\x01 包裹供前端转 <mark>。
+
+    q 为空时返回文本前缀，不加高亮标记。
+    """
+    if not text:
+        return ""
+    if not q:
+        return text[:span * 2]
+    idx = text.find(q)
+    if idx < 0:
+        return text[:span * 2]
+    start = max(0, idx - span)
+    end = min(len(text), idx + len(q) + span)
+    prefix = "…" if start > 0 else ""
+    suffix = "…" if end < len(text) else ""
+    return (prefix + text[start:idx] + "\x00" + q + "\x01"
+            + text[idx + len(q):end] + suffix)
+
+
+def query_search(conn, q, start, end, limit):
+    """跨日期内容搜索（text_raw 与 long_text OR）。
+
+    - spec：搜索只搜内容（关键词 + 时间范围），故 q 为空 → 直接返回空，
+      不做纯范围浏览（避免全表扫描，也与前端「无关键词不发请求」一致）。
+    - q 非空：text_raw LIKE OR long_text LIKE。
+    - 时间范围 start/end 为 'YYYY-MM-DD'，由 server 转成 CST 日边界 ms
+      （[start_ms, end_ms) 开区间）。缺省表示不设该侧边界。
+    - LIKE 通配符 % _ \\ 转义。结果按 created_at DESC，limit 截断，
+      total 为命中总数（截断前）。
+    snippet 用 _snippet 生成（优先 text_raw 命中，否则 long_text 前缀）。
+    """
+    if not q:
+        return {"results": [], "total": 0}
+
+    conds = []
+    params = []
+    if start is not None:
+        conds.append("created_at >= ?")
+        params.append(_cst_day_bounds(start)[0])
+    if end is not None:
+        conds.append("created_at < ?")
+        params.append(_cst_day_bounds(end)[1])
+
+    like = "%" + _escape_like(q) + "%"
+    conds.append("(text_raw LIKE ? ESCAPE '\\' OR long_text LIKE ? ESCAPE '\\')")
+    params += [like, like]
+
+    where = (" WHERE " + " AND ".join(conds)) if conds else ""
+    # total：截断前命中数
+    total = conn.execute(
+        f"SELECT COUNT(*) FROM weibo_posts{where}", params
+    ).fetchone()[0]
+
+    rows = conn.execute(
+        f"SELECT mblogid, text_raw, long_text, created_at "
+        f"FROM weibo_posts{where} "
+        f"ORDER BY created_at DESC LIMIT ?",
+        params + [limit],
+    ).fetchall()
+    results = []
+    for r in rows:
+        text = r["text_raw"] or ""
+        long_text = r["long_text"] or ""
+        # snippet 优先取命中字段的片段
+        if q and q in text:
+            snippet = _snippet(text, q)
+        elif q and q in long_text:
+            snippet = _snippet(long_text, q)
+        else:
+            snippet = _snippet(text, q)
+        results.append({
+            "mblogid": r["mblogid"],
+            "date": _cst_date_str(r["created_at"]),
+            "created_at": r["created_at"],
+            "snippet": snippet,
+        })
+    return {"results": results, "total": total}
+
+
 def query_posts(conn, date):
     """某 CST 日期的全部微博，倒序（最新在上）。
 
@@ -195,6 +287,12 @@ class Handler(BaseHTTPRequestHandler):
                     self._send_json({"error": "missing date"}, status=400)
                 else:
                     self._send_json(query_posts(conn, date))
+            elif path == "/api/search":
+                q = qs.get("q", [""])[0] or ""
+                start = qs.get("start", [None])[0]
+                end = qs.get("end", [None])[0]
+                limit = int(qs.get("limit", ["1000"])[0])
+                self._send_json(query_search(conn, q, start, end, limit))
             else:
                 self._send_json({"error": "not found"}, status=404)
         except Exception as e:
