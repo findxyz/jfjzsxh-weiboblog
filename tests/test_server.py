@@ -79,5 +79,29 @@ class ServerSkeletonTest(_ServerTestBase):
         self.assertIn(status, (403, 404))
 
 
+class BloggerApiTest(_ServerTestBase):
+    def make_data(self, conn):
+        insert_blogger(conn, 1401527553, "tombkeeper",
+                       profile_url="/u/1401527553", verified=1)
+
+    def test_blogger_returns_fields(self):
+        status, data = self._get_json("/api/blogger")
+        self.assertEqual(status, 200)
+        self.assertEqual(data, {
+            "uid": 1401527553,
+            "screen_name": "tombkeeper",
+            "profile_url": "/u/1401527553",
+            "verified": 1,
+        })
+
+
+class BloggerEmptyTest(_ServerTestBase):
+    # 不重写 make_data → 空库（无 blogger 记录）
+    def test_blogger_empty_db_returns_404(self):
+        status, data = self._get_json("/api/blogger")
+        self.assertEqual(status, 404)
+        self.assertIn("error", data)
+
+
 if __name__ == "__main__":
     unittest.main()

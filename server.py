@@ -45,6 +45,23 @@ def open_db(db_path):
     return conn
 
 
+# ---------- 查询函数 ----------
+
+def query_blogger(conn):
+    """取一条博主（单博主场景）。空库返回 None。"""
+    row = conn.execute(
+        "SELECT uid, screen_name, profile_url, verified FROM bloggers LIMIT 1"
+    ).fetchone()
+    if row is None:
+        return None
+    return {
+        "uid": row["uid"],
+        "screen_name": row["screen_name"],
+        "profile_url": row["profile_url"],
+        "verified": row["verified"],
+    }
+
+
 # ---------- HTTP Handler ----------
 
 class Handler(BaseHTTPRequestHandler):
@@ -87,8 +104,18 @@ class Handler(BaseHTTPRequestHandler):
         self._send_text("Not Found", status=404)
 
     def _route_api(self, path, qs):
-        # 各 query_* 函数在后续 Task 中接入
-        self._send_json({"error": "not found"}, status=404)
+        conn = self.conn
+        try:
+            if path == "/api/blogger":
+                b = query_blogger(conn)
+                if b is None:
+                    self._send_json({"error": "no blogger"}, status=404)
+                else:
+                    self._send_json(b)
+            else:
+                self._send_json({"error": "not found"}, status=404)
+        except Exception as e:
+            self._send_json({"error": str(e)}, status=500)
 
     def _serve_static(self, rel):
         # 防目录穿越
