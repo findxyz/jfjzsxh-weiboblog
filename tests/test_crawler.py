@@ -116,3 +116,6 @@ def test_crawl_blog_incremental_adds_new(monkeypatch):
         result = cr.crawl_blog_incremental(uid=1401527553)
 
     assert result["new"] == 1  # plain 新增
+    # 增量模式首页也刷新博主信息
+    row = conn.execute("SELECT screen_name FROM bloggers WHERE uid=1401527553").fetchone()
+    assert row["screen_name"] == "tombkeeper"

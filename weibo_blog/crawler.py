@@ -71,7 +71,7 @@ class BlogCrawler:
             set_cookie(self.conn, cookie)
         self.cookie = cookie or get_cookie(self.conn)
         if not self.cookie:
-            raise RuntimeError("Cookie 未设置。请先运行: python crawl_blog.py --set-cookie '...'")
+            raise RuntimeError("Cookie 未设置。请先运行: uv run crawl_blog.py --set-cookie '...'")
         self.session = self._make_session(self.cookie)
 
     def _make_session(self, cookie: str) -> requests.Session:
@@ -158,11 +158,17 @@ class BlogCrawler:
         new_count = 0
         page = 1
         since_id = ""
+        blogger_saved = False
 
         while True:
             since_id, posts = self.fetch_mymblog(uid, page, since_id)
             if not posts:
                 break
+
+            # 首页提取博主信息（顺带刷新昵称/头像等）
+            if not blogger_saved and posts[0].get("user"):
+                save_blogger(self.conn, parse_blogger(posts[0]["user"]))
+                blogger_saved = True
 
             for raw in posts:  # list 旧→新
                 post_id = raw.get("id", 0)

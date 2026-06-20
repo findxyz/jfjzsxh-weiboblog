@@ -64,24 +64,22 @@ weiboblog/
 ## 3. 首次部署
 
 ```bash
-# 1. 安装依赖（任选其一）
-uv sync                                  # 推荐
-# 或：pip install requests urllib3 playwright
+# 1. 安装依赖
+uv sync
 
 # 2. 安装浏览器（仅扫码登录需要）
 uv run playwright install chromium
-# 或：python -m playwright install chromium
 
 # 3. 验证环境
-python crawl_blog.py --check-playwright
+uv run crawl_blog.py --check-playwright
 # 期望：✅ playwright Python 包可导入  /  ✅ Chromium 启动正常
 
 # 4. 扫码登录（默认有头弹窗；无桌面环境加 --headless）
-python crawl_blog.py --renew-cookie
+uv run crawl_blog.py --renew-cookie
 # 弹出浏览器 → 用微博 APP 扫码 → 程序自动提取 cookie 入库
 
 # 5. 首次抓取（首次无已存数据 → 自动全量回填）
-python crawl_blog.py --uid 1401527553
+uv run crawl_blog.py --uid 1401527553
 ```
 
 扫码失败的退路：
@@ -89,7 +87,7 @@ python crawl_blog.py --uid 1401527553
 - 浏览器打开 `https://weibo.com` 手动登录，从 DevTools → Application → Cookies
   复制 `.weibo.com` 域下所有键值，拼成 `k1=v1; k2=v2` 形式，运行：
   ```
-  python crawl_blog.py --set-cookie "SUB=xxx; SUBP=yyy; ..."
+  uv run crawl_blog.py --set-cookie "SUB=xxx; SUBP=yyy; ..."
   ```
 - 如果已有 weibogroup 的 cookie 想复用，直接把那个 cookie 字符串用 `--set-cookie`
   写进 weiboblog 的库即可（两个项目库独立，互不影响，详见 §6）。
@@ -104,19 +102,19 @@ python crawl_blog.py --uid 1401527553
 
 | 命令 | 作用 |
 |------|------|
-| `python crawl_blog.py --renew-cookie` | Playwright 打开 weibo.com，扫码后自动存 cookie。默认**有头弹窗**。 |
-| `python crawl_blog.py --renew-cookie --headless` | 无头模式：二维码截图存到 `qrcode.png` 并尝试用系统默认程序打开。适合无桌面 Linux。 |
-| `python crawl_blog.py --check-playwright` | 检查 Playwright + Chromium 是否就绪，返回 exit code 0/1。 |
-| `python crawl_blog.py --set-cookie 'SUB=xxx; SUBP=yyy'` | 手动写入 cookie，不依赖 Playwright。 |
-| `python crawl_blog.py --db D:\path\to.db ...` | 任何命令都可加 `--db` 指定数据库路径。 |
+| `uv run crawl_blog.py --renew-cookie` | Playwright 打开 weibo.com，扫码后自动存 cookie。默认**有头弹窗**。 |
+| `uv run crawl_blog.py --renew-cookie --headless` | 无头模式：二维码截图存到 `qrcode.png` 并尝试用系统默认程序打开。适合无桌面 Linux。 |
+| `uv run crawl_blog.py --check-playwright` | 检查 Playwright + Chromium 是否就绪，返回 exit code 0/1。 |
+| `uv run crawl_blog.py --set-cookie 'SUB=xxx; SUBP=yyy'` | 手动写入 cookie，不依赖 Playwright。 |
+| `uv run crawl_blog.py --db D:\path\to.db ...` | 任何命令都可加 `--db` 指定数据库路径。 |
 
 ### 4.2 抓取
 
 | 命令 | 作用 |
 |------|------|
-| `python crawl_blog.py --uid 1401527553` | 抓取指定博主。有已存数据走**增量**，无则自动**全量回填**。 |
-| `python crawl_blog.py --uid 1401527553 --full` | 强制**全量回填**（从 page=1 翻到空为止）。 |
-| `python crawl_blog.py --all` | 增量抓取数据库中所有已存博主。 |
+| `uv run crawl_blog.py --uid 1401527553` | 抓取指定博主。有已存数据走**增量**，无则自动**全量回填**。 |
+| `uv run crawl_blog.py --uid 1401527553 --full` | 强制**全量回填**（从 page=1 翻到空为止）。 |
+| `uv run crawl_blog.py --all` | 增量抓取数据库中所有已存博主。 |
 
 **两种抓取模式：**
 
@@ -225,16 +223,18 @@ python crawl_blog.py --uid 1401527553
 **Windows 任务计划（每 10 分钟增量）：**
 
 ```powershell
-schtasks /create /tn "WeiboBlogCrawl" /tr "cmd /c cd /d D:\weiboblog && python crawl_blog.py --uid 1401527553 >> crawl.log 2>&1" /sc minute /mo 10
+schtasks /create /tn "WeiboBlogCrawl" /tr "cmd /c cd /d D:\weiboblog && uv run crawl_blog.py --uid 1401527553 >> crawl.log 2>&1" /sc minute /mo 10
 ```
 
 **Linux/macOS cron：**
 
 ```cron
-*/10 * * * * cd /path/to/weiboblog && python crawl_blog.py --uid 1401527553 >> crawl.log 2>&1
+*/10 * * * * cd /path/to/weiboblog && uv run crawl_blog.py --uid 1401527553 >> crawl.log 2>&1
 ```
 
 > 定时任务建议只跑增量（不带 `--full`），首次全量回填手动跑一次即可。
+> ⚠️ 计划任务环境下需确保 `uv` 在系统 PATH 中，否则用 venv 绝对路径：
+> `D:\weiboblog\.venv\Scripts\python.exe crawl_blog.py ...`
 
 ---
 
@@ -243,12 +243,12 @@ schtasks /create /tn "WeiboBlogCrawl" /tr "cmd /c cd /d D:\weiboblog && python c
 部署完成后，按顺序跑这几条确认一切就绪：
 
 ```bash
-python crawl_blog.py --check-playwright          # ① 浏览器环境
-python crawl_blog.py --renew-cookie              # ② 扫码登录
-python crawl_blog.py --uid 1401527553            # ③ 首次全量抓取
+uv run crawl_blog.py --check-playwright          # ① 浏览器环境
+uv run crawl_blog.py --renew-cookie              # ② 扫码登录
+uv run crawl_blog.py --uid 1401527553            # ③ 首次全量抓取
 # 查数据库确认有数据：
-python -c "import sqlite3; c=sqlite3.connect('weibo_blog.db'); print('微博数:', c.execute('SELECT COUNT(*) FROM weibo_posts').fetchone()[0]); print('博主:', c.execute('SELECT screen_name FROM bloggers').fetchall())"
-python crawl_blog.py --uid 1401527553            # ④ 再跑一次，应「新增 0 条」（增量）
+uv run python -c "import sqlite3; c=sqlite3.connect('weibo_blog.db'); print('微博数:', c.execute('SELECT COUNT(*) FROM weibo_posts').fetchone()[0]); print('博主:', c.execute('SELECT screen_name FROM bloggers').fetchall())"
+uv run crawl_blog.py --uid 1401527553            # ④ 再跑一次，应「新增 0 条」（增量）
 ```
 
 任何一步报错，对照第 7 节排查。
@@ -258,7 +258,7 @@ python crawl_blog.py --uid 1401527553            # ④ 再跑一次，应「新�
 ## 10. 测试
 
 ```bash
-python -m pytest tests/ -v
+uv run pytest tests/ -v
 ```
 
 覆盖：建表 + cookie 存取、save_blogger/save_post 去重/get_latest_post_id、
