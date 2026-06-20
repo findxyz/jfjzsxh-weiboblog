@@ -124,6 +124,33 @@ def test_crawl_blog_backfill(monkeypatch):
     assert lt_row["long_text"] == "这是长文全文内容"
 
 
+def test_crawl_blog_backfill_start_page(monkeypatch):
+    """start_page=963：从指定页开始，跳过前面的页，不提取博主（已存）。
+
+    场景：之前回填到 page 962 撞 414，想从 963 继续。
+    """
+    cr, conn = make_crawler(monkeypatch)
+    plain = load_fixture("post_plain.json")
+
+    # page 963 有数据，page 964 为空（到底）
+    pages = iter([("kp964", [plain]), ("", [])])
+    fetched_pages = []
+
+    def fake_fetch(uid, page, since_id=""):
+        fetched_pages.append(page)
+        return next(pages)
+
+    with patch.object(cr, "fetch_mymblog", side_effect=fake_fetch), \
+         patch.object(cr, "fetch_longtext", return_value=""):
+        result = cr.crawl_blog_backfill(uid=1401527553, start_page=963)
+
+    assert fetched_pages == [963, 964]  # 从 963 开始，没碰 1-962
+    assert result["new"] == 1
+    # start_page>1 时跳过博主提取（前面页已存过）
+    row = conn.execute("SELECT COUNT(*) FROM bloggers WHERE uid=1401527553").fetchone()
+    assert row[0] == 0
+
+
 def test_crawl_blog_backfill_stops_gracefully_on_414(monkeypatch):
     """降级重试仍 414 时优雅停止并保留已抓数据，而非整轮崩溃。
 

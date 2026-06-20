@@ -29,6 +29,8 @@ def main():
     parser.add_argument("--set-cookie", default="", help="设置 cookie 到数据库后退出")
     parser.add_argument("--uid", type=int, default=0, help="抓取指定博主 uid")
     parser.add_argument("--full", action="store_true", help="全量回填（而非增量）")
+    parser.add_argument("--start-page", type=int, default=1,
+                        help="全量回填起始页码（断点续抓，如上次 414 停在 962 则 --start-page 963）")
     parser.add_argument("--all", action="store_true", help="增量抓取所有已存博主")
     parser.add_argument("--renew-cookie", action="store_true", help="浏览器扫码续期 cookie")
     parser.add_argument("--check-playwright", action="store_true",
@@ -67,7 +69,7 @@ def main():
     crawler = BlogCrawler(db_path=args.db)
 
     if args.uid:
-        result = crawler.crawl_blog(args.uid, full=args.full)
+        result = crawler.crawl_blog(args.uid, full=args.full, start_page=args.start_page)
         print(f"uid={args.uid}: 新增 {result['new']} 条")
     elif args.all:
         for b in get_blogger_list(crawler.conn):

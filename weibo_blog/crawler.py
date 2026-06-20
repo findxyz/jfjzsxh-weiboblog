@@ -129,12 +129,16 @@ class BlogCrawler:
 
     # ── 编排：全量回填 ───────────────────────────────
 
-    def crawl_blog_backfill(self, uid: int) -> dict:
-        """全量回填：从 page=1 翻到 list 为空"""
+    def crawl_blog_backfill(self, uid: int, start_page: int = 1) -> dict:
+        """全量回填：从 page=start_page 翻到 list 为空。
+
+        start_page>1 用于断点续抓（如上次撞 414 停在 page 962，从 963 继续）。
+        从中间页开始时 since_id 留空（无法接上游标）、跳过博主提取（前面页已存）。
+        """
         new_count = 0
-        page = 1
+        page = start_page
         since_id = ""
-        blogger_saved = False
+        blogger_saved = start_page > 1  # 中途开始则视为博主已存，跳过提取
 
         while True:
             try:
@@ -224,10 +228,13 @@ class BlogCrawler:
             log.info("  增量完成 uid=%d: +%d 条", uid, new_count)
         return {"new": new_count, "total": new_count}
 
-    def crawl_blog(self, uid: int, full: bool = False) -> dict:
-        """抓取博主微博。full=True 或无已存数据 → 全量回填，否则增量"""
+    def crawl_blog(self, uid: int, full: bool = False, start_page: int = 1) -> dict:
+        """抓取博主微博。full=True 或无已存数据 → 全量回填，否则增量。
+
+        start_page 仅对 full 回填有效，用于断点续抓。
+        """
         if full or get_latest_post_id(self.conn, uid) is None:
-            return self.crawl_blog_backfill(uid)
+            return self.crawl_blog_backfill(uid, start_page=start_page)
         return self.crawl_blog_incremental(uid)
 
 
