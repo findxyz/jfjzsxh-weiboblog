@@ -63,10 +63,13 @@ body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
   0% { box-shadow: 0 0 0 3px #ff8200; background: #ffe0b3; }
   100% { box-shadow: 0 2px 8px rgba(0,0,0,.12); background: #fff; }
 }
-.post-time { float: right; font-size: 12px; color: #999; }
+.post-time { float: right; font-size: 12px; color: #999; margin-left: 12px; }
+.post-link { float: right; font-size: 12px; color: #ff8200; text-decoration: none; }
+.post-link:hover { text-decoration: underline; }
 .post-text { font-size: 14px; color: #333; white-space: pre-wrap; word-break: break-word; line-height: 1.6; }
 .post-text.long-text { margin-top: 4px; padding-top: 4px; border-top: 1px dashed #eee; }
 .post-pics { margin: 10px 0 6px; }
+.post-video { margin: 6px 0; }
 .pics-btn {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 6px 14px; background: #fff5e8; border: 1px solid #ffd9a0;

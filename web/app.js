@@ -166,7 +166,10 @@ function renderCard(p) {
   card.className = "post-card";
   card.id = "post-" + p.mblogid;
 
-  let html = `<span class="post-time">${fmtTime(p.created_at)}</span>`;
+  // 原微博链接（右上角，新标签打开）
+  const weiboUrl = `https://weibo.com/${p.uid}/${p.mblogid}`;
+  let html = `<span class="post-time">${fmtTime(p.created_at)}</span>` +
+    `<a class="post-link" href="${escHtml(weiboUrl)}" target="_blank" rel="noopener" title="在微博查看">原微博 ↗</a>`;
 
   // 正文
   html += `<div class="post-text">${escHtml(p.text_raw)}</div>`;
@@ -179,6 +182,13 @@ function renderCard(p) {
     html += `<div class="post-pics" data-pics='${escHtml(JSON.stringify(p.pics.map(pic => pic.url_large || pic.url_bmiddle || "")))}'>` +
       `<button class="pics-btn" type="button"><span class="pics-icon">🖼</span> 图片 ${p.pics.length} 张</button>` +
       `</div>`;
+  }
+
+  // 视频：占位符按钮（stream_url 浏览器多不能直接播，点击跳微博页观看）
+  if (p.video_url) {
+    html += `<div class="post-video">` +
+      `<a class="pics-btn" href="${escHtml(weiboUrl)}" target="_blank" rel="noopener">` +
+      `<span class="pics-icon">🎬</span> 视频</a></div>`;
   }
 
   // 元信息

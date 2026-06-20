@@ -163,6 +163,9 @@ class PostsApiTest(_ServerTestBase):
              "is_long_text": 1,
              "pics_json": '[{"pid":"x","url_bmiddle":"http://img/b.jpg","url_large":"http://img/l.jpg","w":100,"h":80}]',
              "created_at": base + 2000},  # 06-17，更新
+            {"mblogid": "a4", "post_id": 4, "uid": 1401527553,
+             "text_raw": "看视频", "video_url": "http://video.weibo.com/stream.mp4",
+             "created_at": base + 3000},  # 06-17，带视频
             {"mblogid": "a3", "post_id": 3, "uid": 1401527553,
              "text_raw": "次日", "created_at": base + 86400000},  # 06-18
         ])
@@ -172,7 +175,7 @@ class PostsApiTest(_ServerTestBase):
         self.assertEqual(status, 200)
         self.assertEqual(data["date"], "2025-06-17")
         mids = [p["mblogid"] for p in data["posts"]]
-        self.assertEqual(mids, ["a2", "a1"])  # 倒序，最新在上
+        self.assertEqual(mids, ["a4", "a2", "a1"])  # 倒序，最新在上
 
     def test_posts_no_leak_across_days(self):
         status, data = self._get_json("/api/posts?date=2025-06-18")
@@ -208,10 +211,20 @@ class PostsApiTest(_ServerTestBase):
         p = data["posts"][0]
         # 返回字段集合（不含 text/HTML 版、不含 raw_json）
         self.assertEqual(set(p.keys()), {
-            "mblogid", "text_raw", "long_text", "is_long_text",
-            "pics", "source", "reposts_count", "comments_count",
+            "mblogid", "uid", "text_raw", "long_text", "is_long_text",
+            "pics", "video_url", "source", "reposts_count", "comments_count",
             "attitudes_count", "created_at",
         })
+
+    def test_posts_returns_uid_and_video_url(self):
+        status, data = self._get_json("/api/posts?date=2025-06-17")
+        self.assertEqual(status, 200)
+        a4 = [p for p in data["posts"] if p["mblogid"] == "a4"][0]
+        self.assertEqual(a4["uid"], 1401527553)
+        self.assertEqual(a4["video_url"], "http://video.weibo.com/stream.mp4")
+        # 无视频微博 video_url 为空串
+        a1 = [p for p in data["posts"] if p["mblogid"] == "a1"][0]
+        self.assertEqual(a1["video_url"], "")
 
 
 class SearchApiTest(_ServerTestBase):

@@ -234,8 +234,8 @@ def query_posts(conn, date):
     """
     start_ms, end_ms = _cst_day_bounds(date)
     rows = conn.execute(
-        "SELECT mblogid, text_raw, long_text, is_long_text, pics_json, source, "
-        "reposts_count, comments_count, attitudes_count, created_at "
+        "SELECT mblogid, uid, text_raw, long_text, is_long_text, pics_json, "
+        "video_url, source, reposts_count, comments_count, attitudes_count, created_at "
         "FROM weibo_posts "
         "WHERE created_at>=? AND created_at<? "
         "ORDER BY created_at DESC",
@@ -243,10 +243,12 @@ def query_posts(conn, date):
     ).fetchall()
     posts = [{
         "mblogid": r["mblogid"],
+        "uid": r["uid"],
         "text_raw": r["text_raw"],
         "long_text": r["long_text"],
         "is_long_text": r["is_long_text"],
         "pics": _parse_pics(r["pics_json"]),
+        "video_url": r["video_url"],
         "source": r["source"],
         "reposts_count": r["reposts_count"],
         "comments_count": r["comments_count"],
