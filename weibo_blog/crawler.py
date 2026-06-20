@@ -90,15 +90,32 @@ class BlogCrawler:
         return s
 
     def fetch_mymblog(self, uid: int, page: int, since_id: str = "") -> tuple[str, list[dict]]:
-        """调用 mymblog 接口，返回 (next_since_id, posts_raw_list)"""
+        """调用 mymblog 接口，返回 (next_since_id, posts_raw_list)
+
+        按微博要求传 page + since_id 翻页（since_id 是服务端下发的游标，必须
+        回传）。深翻（数百页）时偶发 414 Request-URI Too Large，此时降级重试
+        一次：去掉 since_id 仅用 page 翻页，避免直接崩溃丢失整轮进度。降级重试
+        仍 414 则抛出，由编排层优雅停止。
+        """
         params = {"uid": uid, "page": page, "feature": 0}
         if since_id:
             params["since_id"] = since_id
         self.session.headers["referer"] = f"{API_BASE}/u/{uid}"
-        resp = _request_with_retry(
-            self.session, "GET", f"{API_BASE}/ajax/statuses/mymblog",
-            params=params, timeout=15,
-        )
+        try:
+            resp = _request_with_retry(
+                self.session, "GET", f"{API_BASE}/ajax/statuses/mymblog",
+                params=params, timeout=15,
+            )
+        except requests.HTTPError as e:
+            if e.response is not None and e.response.status_code == 414 and since_id:
+                log.warning("  page %d 触发 414，降级重试（仅用 page，不带 since_id）", page)
+                fallback = {k: v for k, v in params.items() if k != "since_id"}
+                resp = _request_with_retry(
+                    self.session, "GET", f"{API_BASE}/ajax/statuses/mymblog",
+                    params=fallback, timeout=15,
+                )
+            else:
+                raise
         data = resp.json().get("data", {}) or {}
         return data.get("since_id", "") or "", data.get("list", []) or []
 
@@ -120,7 +137,13 @@ class BlogCrawler:
         blogger_saved = False
 
         while True:
-            since_id, posts = self.fetch_mymblog(uid, page, since_id)
+            try:
+                since_id, posts = self.fetch_mymblog(uid, page, since_id)
+            except requests.HTTPError as e:
+                if e.response is not None and e.response.status_code == 414:
+                    log.warning("  page %d 触发 414（URI 过长），停止回填，已抓 %d 条", page, new_count)
+                    break
+                raise
             if not posts:
                 break
 
@@ -161,7 +184,13 @@ class BlogCrawler:
         blogger_saved = False
 
         while True:
-            since_id, posts = self.fetch_mymblog(uid, page, since_id)
+            try:
+                since_id, posts = self.fetch_mymblog(uid, page, since_id)
+            except requests.HTTPError as e:
+                if e.response is not None and e.response.status_code == 414:
+                    log.warning("  page %d 触发 414（URI 过长），停止增量，新增 %d 条", page, new_count)
+                    break
+                raise
             if not posts:
                 break
 

@@ -161,7 +161,7 @@ def _is_logged_in(page) -> bool:
 | `uid` | int | 是 | `1401527553` | 博主 uid |
 | `page` | int | 是 | `1` | **页码，递增取更旧**（见 §6） |
 | `feature` | int | 是 | `0` | 固定 0 |
-| `since_id` | string | 否 | — | 实测可省略，page 翻页即可 |
+| `since_id` | string | 否 | — | 服务端下发的分页游标，必须回传以正确翻页（不传会漏数据/被风控）。深翻偶发 414 时，由客户端降级重试一次（仅用 page，不带 since_id），见 §6 |
 
 **关键：返回顺序 ⚠️**
 
@@ -365,6 +365,7 @@ list[-1]  = 这一页里最新的微博  →  停止条件判定（增量模式�
 |--------|------|--------|------|
 | 200 | 成功 | — | — |
 | 429 | 限流 | ✅ | 4^n × (1 + rand[0,0.5]) 秒 |
+| 414 | URI 过长 | 降级重试一次 | 深翻偶发；去掉 since_id 仅用 page 重试，仍 414 则编排层优雅停止保留已抓数据（见 §2.2/§6） |
 | 5xx | 服务端错 | ✅ | 2^n × (1 + rand[0,0.5]) 秒 |
 | 4xx (非429) | 客户端错 | ❌ | 立即抛出 |
 | ConnectionError / Timeout | 网络错 | ✅ | 2^n × (1 + rand[0,0.5]) 秒 |
@@ -406,16 +407,23 @@ list[-1]  = 这一页里最新的微博  →  停止条件判定（增量模式�
 
 ### 6.1 全量回填（backfill）
 
+> `since_id` 是服务端下发的分页游标，**必须回传**以正确翻页。深翻（数百页）
+> 偶发 414 Request-URI Too Large 时，`fetch_mymblog` 内部降级重试一次
+> （仅用 page、不带 since_id）；降级重试仍 414 则抛出，编排层捕获后优雅停止，
+> 保留已抓数据（`save_post` 逐条 commit，已落库不丢）。
+
 ```
 1. page = 1, since_id = ""
 2. loop:
-     since_id, posts = fetch_mymblog(uid, page, since_id)   # list 旧→新
-     if not posts: break                                    # 到底
-     if page == 1 and posts[0].user: save_blogger(...)      # 首页提取博主
+     try: since_id, posts = fetch_mymblog(uid, page, since_id)   # list 旧→新
+                                                                  # 内部遇 414 自动降级重试
+     except 414: break                                           # 降级仍 414，优雅停
+     if not posts: break                                         # 到底
+     if page == 1 and posts[0].user: save_blogger(...)           # 首页提取博主
      for raw in posts:
        parsed = parse_post(raw)
        if parsed.is_long_text: parsed.long_text = fetch_longtext(mblogid)
-       save_post(parsed)                                    # mblogid 去重
+       save_post(parsed)                                         # mblogid 去重
      page += 1
      sleep(0.5s ± 20%)
 ```
@@ -427,7 +435,8 @@ list[-1]  = 这一页里最新的微博  →  停止条件判定（增量模式�
    if latest is None: → 走全量回填
 2. page = 1, since_id = ""
 3. loop:
-     since_id, posts = fetch_mymblog(uid, page, since_id)   # list 旧→新
+     try: since_id, posts = fetch_mymblog(uid, page, since_id)   # list 旧→新
+     except 414: break                                            # URI 过长，优雅停
      if not posts: break
      for raw in posts:                    # 从旧到新
        if raw.id <= latest: continue      # 比已存旧，跳过
