@@ -1,5 +1,62 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
-<head><meta charset="utf-8"><title>WeiboBlog</title></head>
-<body><!-- 占位，Task 8 替换为完整骨架 --></body>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WeiboBlog 消息查看器</title>
+  <link rel="stylesheet" href="/web/style.css">
+</head>
+<body>
+  <div id="topbar">
+    <span id="blogger-name">加载中…</span>
+    <button id="search-btn" type="button" title="关键词 + 时间范围搜索">🔍 高级搜索</button>
+    <span id="status"></span>
+  </div>
+
+  <div id="main">
+    <aside id="sidebar">
+      <div id="date-list"></div>
+    </aside>
+
+    <section id="viewer">
+      <div id="day-indicator"></div>
+      <div id="post-list"></div>
+      <div id="empty-hint" hidden></div>
+    </section>
+  </div>
+
+  <!-- 高级搜索浮层 -->
+  <div id="search-overlay" hidden>
+    <div id="search-panel">
+      <div id="search-panel-head">
+        <span>高级搜索</span>
+        <button id="search-close" type="button">×</button>
+      </div>
+      <div class="search-fields">
+        <input id="search-keyword" type="search" placeholder="关键词（模糊匹配正文，可选）" autocomplete="off">
+      </div>
+      <div class="search-fields">
+        <label class="field-label">起止日期：
+          <input id="search-start" type="date">
+          <span class="date-sep-inline">至</span>
+          <input id="search-end" type="date">
+        </label>
+        <button id="search-submit" type="button">搜索</button>
+      </div>
+      <div id="search-status"></div>
+      <div id="search-results"></div>
+    </div>
+  </div>
+
+  <!-- 图片放大查看 -->
+  <div id="lightbox" class="lightbox hidden">
+    <div class="lightbox-backdrop"></div>
+    <div class="lightbox-content">
+      <button class="lightbox-close" type="button" title="关闭">×</button>
+      <div class="lightbox-stage"></div>
+    </div>
+  </div>
+
+  <script src="/web/app.js"></script>
+</body>
 </html>
