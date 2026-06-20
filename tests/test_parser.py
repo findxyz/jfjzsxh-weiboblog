@@ -51,7 +51,7 @@ def test_parse_post_with_video():
 
 
 def test_parse_post_with_retweet():
-    """转发微博：retweeted_json 精简为 id/mblogid/text_raw/uid/screen_name/created_at"""
+    """转发微博：retweeted_json 精简为 id/mblogid/text_raw/uid/screen_name/created_at/pics/video_url"""
     raw = load_fixture("post_with_retweet.json")
     p = parse_post(raw)
     assert p["retweeted_json"]
@@ -62,6 +62,28 @@ def test_parse_post_with_retweet():
     assert rt["uid"] == 1401527553
     assert rt["screen_name"] == "tombkeeper"
     assert rt["created_at"] == "Fri May 14 22:21:08 +0800 2021"
+    # 原微博无图无视频，pics 为空数组、video_url 为空串
+    assert rt["pics"] == []
+    assert rt["video_url"] == ""
+
+
+def test_parse_post_retweet_includes_pics_and_video():
+    """转发原微博的 pics/video 也精简进 retweeted_json（查看器要展示原微博媒体）"""
+    raw = load_fixture("post_with_retweet.json")
+    # 给原微博注入 pic_infos 和 page_info（模拟原微博带图带视频）
+    rt = raw["retweeted_status"]
+    rt["pic_infos"] = {
+        "pid1": {
+            "large": {"url": "https://wx2.sinaimg.cn/large/pid1.jpg", "width": 800, "height": 600},
+            "bmiddle": {"url": "https://wx2.sinaimg.cn/bmiddle/pid1.jpg"},
+        }
+    }
+    rt["page_info"] = {"media_info": {"stream_url": "https://f.video.weibocdn.com/rt.mp4"}}
+    p = parse_post(raw)
+    rt2 = json.loads(p["retweeted_json"])
+    assert len(rt2["pics"]) == 1
+    assert rt2["pics"][0]["url_large"] == "https://wx2.sinaimg.cn/large/pid1.jpg"
+    assert rt2["video_url"] == "https://f.video.weibocdn.com/rt.mp4"
 
 
 def test_parse_post_longtext_flag():

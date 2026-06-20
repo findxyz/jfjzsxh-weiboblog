@@ -20,12 +20,8 @@ def _clean_source(s: str) -> str:
     return text
 
 
-def parse_post(raw: dict) -> dict:
-    """把 mymblog 单条微博映射为扁平 dict"""
-    user = raw.get("user", {}) or {}
-    created_at = _parse_created_at(raw["created_at"])
-
-    # 图片精简
+def _extract_pics(raw: dict) -> list[dict]:
+    """从 pic_infos 精简出 [{pid, url_large, url_bmiddle, w, h}]。"""
     pics = []
     pic_infos = raw.get("pic_infos") or {}
     for pid, info in pic_infos.items():
@@ -38,13 +34,25 @@ def parse_post(raw: dict) -> dict:
             "w": large.get("width", 0),
             "h": large.get("height", 0),
         })
+    return pics
 
-    # 视频直链
+
+def _extract_video(raw: dict) -> str:
+    """从 page_info.media_info 提取视频直链 stream_url。"""
     page_info = raw.get("page_info") or {}
     media_info = page_info.get("media_info") or {}
-    video_url = media_info.get("stream_url", "")
+    return media_info.get("stream_url", "")
 
-    # 转发原微博精简
+
+def parse_post(raw: dict) -> dict:
+    """把 mymblog 单条微博映射为扁平 dict"""
+    user = raw.get("user", {}) or {}
+    created_at = _parse_created_at(raw["created_at"])
+
+    pics = _extract_pics(raw)
+    video_url = _extract_video(raw)
+
+    # 转发原微博精简（含 pics/video，便于查看器展示原微博媒体）
     retweeted_json = ""
     rt = raw.get("retweeted_status")
     if rt:
@@ -56,6 +64,8 @@ def parse_post(raw: dict) -> dict:
             "uid": rt_user.get("id", 0),
             "screen_name": rt_user.get("screen_name", ""),
             "created_at": rt.get("created_at", ""),
+            "pics": _extract_pics(rt),
+            "video_url": _extract_video(rt),
         }, ensure_ascii=False)
 
     return {

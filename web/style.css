@@ -81,6 +81,10 @@ body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 .retweet-text a:hover { text-decoration: underline; }
 .post-pics { margin: 10px 0 6px; }
 .post-video { margin: 6px 0; }
+.post-retweet .post-pics, .post-retweet .post-video { margin: 6px 0 2px; }
+.post-retweet .pics-btn {
+  padding: 3px 10px; font-size: 12px; background: #fff; border-color: #ffe0b3;
+}
 .pics-btn {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 6px 14px; background: #fff5e8; border: 1px solid #ffd9a0;

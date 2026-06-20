@@ -170,6 +170,23 @@ function renderPosts(posts) {
   }
 }
 
+// 生成媒体占位符 HTML（图片+视频），原微博与转发原微博共用
+function mediaHtml(pics, videoUrl, weiboUrl) {
+  let h = "";
+  if (pics && pics.length) {
+    const urls = JSON.stringify(pics.map(pic => pic.url_large || pic.url_bmiddle || ""));
+    h += `<div class="post-pics" data-pics='${escHtml(urls)}'>` +
+      `<button class="pics-btn" type="button"><span class="pics-icon">🖼</span> 图片 ${pics.length} 张</button>` +
+      `</div>`;
+  }
+  if (videoUrl) {
+    h += `<div class="post-video">` +
+      `<a class="pics-btn" href="${escHtml(weiboUrl)}" target="_blank" rel="noopener">` +
+      `<span class="pics-icon">🎬</span> 视频</a></div>`;
+  }
+  return h;
+}
+
 function renderCard(p) {
   const card = document.createElement("div");
   card.className = "post-card";
@@ -181,33 +198,29 @@ function renderCard(p) {
     `<a class="post-link" href="${escHtml(weiboUrl)}" target="_blank" rel="noopener" title="在微博查看">原微博 ↗</a>`;
 
   // 正文（URL 转可点击链接，含 t.cn 短链）
-  html += `<div class="post-text">${linkify(escHtml(p.text_raw))}</div>`;
+  // 转发微博：text_raw 末尾的「 //@用户名:原微博内容」与引用块重复，截掉
+  let bodyText = p.text_raw || "";
+  if (p.retweeted) {
+    const cut = bodyText.search(/\s*\/\/@/);
+    if (cut >= 0) bodyText = bodyText.slice(0, cut);
+  }
+  html += `<div class="post-text">${linkify(escHtml(bodyText))}</div>`;
   if (p.is_long_text && p.long_text) {
     html += `<div class="post-text long-text">${linkify(escHtml(p.long_text))}</div>`;
   }
 
-  // 转发原微博引用块（橙色竖线）
+  // 本微博媒体
+  html += mediaHtml(p.pics, p.video_url, weiboUrl);
+
+  // 转发原微博引用块（橙色竖线，含原微博媒体）
   if (p.retweeted && p.retweeted.text_raw) {
     const rt = p.retweeted;
     const rtUrl = `https://weibo.com/${rt.uid}/${rt.mblogid}`;
     html += `<div class="post-retweet">` +
       `<a class="retweet-name" href="${escHtml(rtUrl)}" target="_blank" rel="noopener">@${escHtml(rt.screen_name || "")}</a>` +
       `<div class="retweet-text">${linkify(escHtml(rt.text_raw))}</div>` +
+      mediaHtml(rt.pics, rt.video_url, rtUrl) +
       `</div>`;
-  }
-
-  // 图片：占位符按钮（sinaimg 缩略图防盗链直接 <img> 会 403，改占位+点击看大图）
-  if (p.pics && p.pics.length) {
-    html += `<div class="post-pics" data-pics='${escHtml(JSON.stringify(p.pics.map(pic => pic.url_large || pic.url_bmiddle || "")))}'>` +
-      `<button class="pics-btn" type="button"><span class="pics-icon">🖼</span> 图片 ${p.pics.length} 张</button>` +
-      `</div>`;
-  }
-
-  // 视频：占位符按钮（stream_url 浏览器多不能直接播，点击跳微博页观看）
-  if (p.video_url) {
-    html += `<div class="post-video">` +
-      `<a class="pics-btn" href="${escHtml(weiboUrl)}" target="_blank" rel="noopener">` +
-      `<span class="pics-icon">🎬</span> 视频</a></div>`;
   }
 
   // 元信息
@@ -220,15 +233,14 @@ function renderCard(p) {
 
   card.innerHTML = html;
 
-  // 图片占位符点击 → lightbox（支持多图翻页）
-  const picsEl = card.querySelector(".post-pics");
-  if (picsEl) {
+  // 图片占位符点击 → lightbox（支持多图翻页，本微博与转发原微博都绑定）
+  card.querySelectorAll(".post-pics").forEach(picsEl => {
     let urls = [];
     try { urls = JSON.parse(picsEl.dataset.pics || "[]"); } catch (e) {}
     if (urls.length) {
       picsEl.querySelector(".pics-btn").addEventListener("click", () => openLightbox(urls, 0));
     }
-  }
+  });
   return card;
 }
 
