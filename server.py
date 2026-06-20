@@ -89,6 +89,48 @@ def query_month_days(conn, month):
     return [{"date": r["d"], "count": r["c"]} for r in rows]
 
 
+def _parse_pics(pics_json):
+    """pics_json 字符串解析为 list[dict]，失败/空返回 []。"""
+    if not pics_json:
+        return []
+    try:
+        pics = json.loads(pics_json)
+        return pics if isinstance(pics, list) else []
+    except (ValueError, TypeError):
+        return []
+
+
+def query_posts(conn, date):
+    """某 CST 日期的全部微博，倒序（最新在上）。
+
+    用 CST 当日区间 [start_ms, end_ms) 做 created_at 范围过滤，命中
+    (uid, created_at) 复合索引。pics_json 在 server 端解析成数组返回。
+    无数据返回空 posts 列表（非 404）。
+    """
+    start_ms, end_ms = _cst_day_bounds(date)
+    rows = conn.execute(
+        "SELECT mblogid, text_raw, long_text, is_long_text, pics_json, source, "
+        "reposts_count, comments_count, attitudes_count, created_at "
+        "FROM weibo_posts "
+        "WHERE created_at>=? AND created_at<? "
+        "ORDER BY created_at DESC",
+        (start_ms, end_ms),
+    ).fetchall()
+    posts = [{
+        "mblogid": r["mblogid"],
+        "text_raw": r["text_raw"],
+        "long_text": r["long_text"],
+        "is_long_text": r["is_long_text"],
+        "pics": _parse_pics(r["pics_json"]),
+        "source": r["source"],
+        "reposts_count": r["reposts_count"],
+        "comments_count": r["comments_count"],
+        "attitudes_count": r["attitudes_count"],
+        "created_at": r["created_at"],
+    } for r in rows]
+    return {"date": date, "posts": posts}
+
+
 # ---------- HTTP Handler ----------
 
 class Handler(BaseHTTPRequestHandler):
@@ -147,6 +189,12 @@ class Handler(BaseHTTPRequestHandler):
                     self._send_json({"error": "missing month"}, status=400)
                 else:
                     self._send_json(query_month_days(conn, month))
+            elif path == "/api/posts":
+                date = qs.get("date", [None])[0]
+                if not date:
+                    self._send_json({"error": "missing date"}, status=400)
+                else:
+                    self._send_json(query_posts(conn, date))
             else:
                 self._send_json({"error": "not found"}, status=404)
         except Exception as e:
