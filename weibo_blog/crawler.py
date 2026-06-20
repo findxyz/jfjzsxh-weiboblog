@@ -246,25 +246,28 @@ def check_playwright() -> bool:
 
 
 def _is_logged_in(page) -> bool:
-    """判断 weibo.com 当前是否处于登录态。
+    """判断 api.weibo.com/chat 当前是否处于登录态。
 
-    判据：登录成功后页面会从登录页跳走，URL 不再含 ``newlogin``；
-    且仍在 weibo.com 主站（而非被重定向到其它域）。
+    判据：未登录时 URL 为 ``https://api.weibo.com/chat#/``，
+    扫码登录成功后 hash 路由跳转为 ``.../#/chat``。
 
     不依赖 cookie 中的 SUB（未登录态 weibo 也会下发匿名 SUB），
     也不依赖 ``a[href*="/u/"]``（登录页的热门博主推荐就有大量此类链接）。
+    用 URL hash 变化作为唯一可靠判据。
     """
     try:
         href = page.evaluate("window.location.href") or ""
     except Exception:
         return False
-    if "newlogin" in href:
-        return False
-    return "weibo.com" in href
+    return "#/chat" in href
 
 
 def renew_cookie(db_path: str, headless: bool = False) -> str:
-    """用 Playwright 打开 weibo.com 扫码登录，提取 cookie 存入数据库并返回
+    """用 Playwright 打开 api.weibo.com/chat 扫码登录，提取 cookie 存入数据库并返回
+
+    选用 api.weibo.com/chat 而非 weibo.com：该页面未登录时直接渲染二维码
+    （截图即可扫码），登录成功后 hash 路由由 ``#/`` 变为 ``#/chat``，判据可靠。
+    weibo.com 首页登录是 SPA 弹层，二维码未必渲染、URL 也不稳定。
 
     Args:
         db_path: 数据库路径
@@ -292,8 +295,8 @@ def renew_cookie(db_path: str, headless: bool = False) -> str:
             )
             page = ctx.new_page()
 
-            log.info("打开 weibo.com ...")
-            page.goto("https://weibo.com", wait_until="domcontentloaded", timeout=30000)
+            log.info("打开 api.weibo.com/chat ...")
+            page.goto("https://api.weibo.com/chat", wait_until="domcontentloaded", timeout=30000)
             time.sleep(3)
 
             current_href = page.evaluate("window.location.href")

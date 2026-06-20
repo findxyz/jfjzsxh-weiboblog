@@ -128,21 +128,15 @@ def _fake_page(url: str):
     return page
 
 
-def test_is_logged_in_rejects_newlogin_page():
-    """登录页 URL 含 newlogin → 未登录（这是之前的误判根因）"""
-    page = _fake_page("https://weibo.com/newlogin?tabtype=weibo&gid=102803&url=https://weibo.com/")
+def test_is_logged_in_rejects_login_page():
+    """api.weibo.com/chat 未登录态 URL 为 #/ → 未登录"""
+    page = _fake_page("https://api.weibo.com/chat#/")
     assert _is_logged_in(page) is False
 
 
-def test_is_logged_in_accepts_homepage_after_login():
-    """登录成功跳回首页 → 已登录"""
-    page = _fake_page("https://weibo.com/")
-    assert _is_logged_in(page) is True
-
-
-def test_is_logged_in_accepts_user_profile():
-    """登录后访问个人主页 → 已登录"""
-    page = _fake_page("https://weibo.com/u/1401527553")
+def test_is_logged_in_accepts_after_login():
+    """扫码登录成功后 hash 路由变为 #/chat → 已登录"""
+    page = _fake_page("https://api.weibo.com/chat#/chat")
     assert _is_logged_in(page) is True
 
 

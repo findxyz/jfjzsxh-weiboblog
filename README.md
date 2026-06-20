@@ -102,7 +102,7 @@ uv run crawl_blog.py --uid 1401527553
 
 | 命令 | 作用 |
 |------|------|
-| `uv run crawl_blog.py --renew-cookie` | Playwright 打开 weibo.com，扫码后自动存 cookie。默认**有头弹窗**。 |
+| `uv run crawl_blog.py --renew-cookie` | Playwright 打开 api.weibo.com/chat 扫码页，扫码后自动存 cookie。默认**有头弹窗**。 |
 | `uv run crawl_blog.py --renew-cookie --headless` | 无头模式：二维码截图存到 `qrcode.png` 并尝试用系统默认程序打开。适合无桌面 Linux。 |
 | `uv run crawl_blog.py --check-playwright` | 检查 Playwright + Chromium 是否就绪，返回 exit code 0/1。 |
 | `uv run crawl_blog.py --set-cookie 'SUB=xxx; SUBP=yyy'` | 手动写入 cookie，不依赖 Playwright。 |

@@ -29,7 +29,7 @@
 | 用途 | 域名 | 说明 |
 |------|------|------|
 | API 服务 | `weibo.com` | mymblog / longtext |
-| 扫码登录 | `weibo.com` | 主站（与 API 同域） |
+| 扫码登录 | `api.weibo.com` | 登录态 Cookie 为 `.weibo.com` 域共享，对 API 同样有效 |
 
 ### 0.2 公共请求头
 
@@ -77,7 +77,7 @@ urllib3.disable_warnings()
 
 | # | 名称 | 方法 | URL | 鉴权 | 用途 |
 |---|------|------|-----|------|------|
-| 1 | 扫码登录页 | GET | `https://weibo.com` | 无 | 取得 Cookie |
+| 1 | 扫码登录页 | GET | `https://api.weibo.com/chat` | 无 | 取得 Cookie |
 | 2 | 博主微博列表 | GET | `https://weibo.com/ajax/statuses/mymblog` | Cookie | 翻页拉微博 |
 | 3 | 长文全文 | GET | `https://weibo.com/ajax/statuses/longtext` | Cookie | 补全长文 |
 
@@ -93,28 +93,36 @@ urllib3.disable_warnings()
 
 | 项 | 值 |
 |----|-----|
-| URL | `https://weibo.com` |
+| URL | `https://api.weibo.com/chat` |
 | 方法 | `GET` |
 | 鉴权 | 无 |
 | 返回 | HTML 主站 |
 
 **流程（必须用无头浏览器模拟，不是简单 HTTP）：**
 
-1. 用 Playwright / Selenium / Puppeteer 打开 `https://weibo.com`。
-2. 未登录时页面显示二维码登录区。
+1. 用 Playwright / Selenium / Puppeteer 打开 `https://api.weibo.com/chat`。
+2. 未登录时页面直接渲染二维码图片（180×180，src 指向 `v2.qr.weibo.cn/inf/gen`），截图即可扫码。
 3. 等待用户用微博 APP 扫码 + 手机端确认。
-4. 登录成功后：cookie 容器里出现 `SUB`，页面出现用户导航链接（`a[href*="/u/"]` 或 `a[href*="/n/"]`）。
+4. 登录成功后：页面 hash 路由由 `#/` 跳转为 `#/chat`。
 5. 提取所有 `domain` 以 `.weibo.com` 结尾的 Cookie，拼成 `k1=v1; k2=v2` 字符串存库。
 
-**判定登录成功的判据（源码 `crawler.py:renew_cookie`）：**
+> 选 `api.weibo.com/chat` 而非 `weibo.com`：后者登录是 SPA 弹层，二维码未必渲染、
+> URL 也不稳定；前者未登录即渲染二维码，登录后 hash 变化明确可靠。
+> 该域下发的登录态 Cookie 是 `.weibo.com` 域共享的，对 `weibo.com/ajax/*` 接口同样有效。
+
+**判定登录成功的判据（源码 `crawler.py:_is_logged_in`）：**
 
 ```python
-def _logged_in():
-    cookies = ctx.cookies()
-    if not any(c["name"] == "SUB" and c.get("value") for c in cookies):
+def _is_logged_in(page) -> bool:
+    try:
+        href = page.evaluate("window.location.href") or ""
+    except Exception:
         return False
-    return bool(page.query_selector('a[href*="/u/"], a[href*="/n/"]'))
+    return "#/chat" in href
 ```
+
+> 不依赖 cookie 中的 `SUB`（未登录态也会下发匿名 SUB），也不依赖
+> `a[href*="/u/"]`（登录页的热门博主推荐就有大量此类链接，会误判）。
 
 **前置条件**
 
@@ -448,7 +456,7 @@ list[-1]  = 这一页里最新的微博  →  停止条件判定（增量模式�
 ### 7.1 最小可用流程
 
 ```
-1. (Playwright/Selenium) 登录 weibo.com → 取 Cookie 串
+1. (Playwright/Selenium) 登录 api.weibo.com/chat → 取 Cookie 串
 2. (HTTP GET 翻页) fetch_mymblog(uid, page=1..N) → 解析存库（mblogid 去重）
 3. (HTTP GET) 对 isLongText=true 的调 longtext 补全文
 ```
