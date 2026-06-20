@@ -1,10 +1,13 @@
 """爬虫核心 — mymblog/longtext 接口调用 + 翻页 + 长文补全 + 编排"""
 from __future__ import annotations
 
+import os
+import sys
 import json
 import time
 import random
 import logging
+import subprocess
 
 import requests
 import urllib3
@@ -191,3 +194,148 @@ class BlogCrawler:
         if full or get_latest_post_id(self.conn, uid) is None:
             return self.crawl_blog_backfill(uid)
         return self.crawl_blog_incremental(uid)
+
+
+# ── cookie 续期（Playwright 扫码） ─────────────────
+
+QRCODE_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "qrcode.png")
+
+
+def _open_image_cross_platform(path: str):
+    """用系统默认程序打开图片，失败静默忽略（仅扫码便利性）"""
+    if not os.path.isfile(path):
+        return
+    try:
+        if sys.platform.startswith("win"):
+            os.startfile(path)  # type: ignore[attr-defined]
+        elif sys.platform == "darwin":
+            subprocess.run(["open", path], check=False)
+        else:
+            subprocess.run(["xdg-open", path], check=False)
+    except Exception:
+        pass
+
+
+def check_playwright() -> bool:
+    """检查 Playwright + Chromium 环境是否就绪"""
+    try:
+        from playwright.sync_api import sync_playwright  # noqa: F401
+        log.info("✅ playwright Python 包可导入")
+    except ImportError:
+        log.error("❌ playwright Python 包未安装（当前解释器: %s）", sys.executable)
+        log.error("   → uv pip install playwright --python %s", sys.executable)
+        log.error("   → %s -m playwright install chromium", sys.executable)
+        return False
+    try:
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(headless=True, args=["--no-sandbox"])
+            browser.close()
+        log.info("✅ Chromium 启动正常")
+    except Exception as e:
+        log.error("❌ Chromium 启动失败: %s", str(e).split("\n")[0])
+        log.error("   → %s -m playwright install chromium", sys.executable)
+        return False
+    return True
+
+
+def renew_cookie(db_path: str, headless: bool = False) -> str:
+    """用 Playwright 打开 weibo.com 扫码登录，提取 cookie 存入数据库并返回
+
+    Args:
+        db_path: 数据库路径
+        headless: True=无头模式（截图保存文件靠图片查看二维码）；
+                  False=有头模式（直接弹出浏览器窗口扫码，更直观）。
+    """
+    if not check_playwright():
+        raise RuntimeError("Playwright 环境未就绪，请按上面提示安装后重试")
+
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as pw:
+        launch_args = ["--disable-blink-features=AutomationControlled"]
+        if headless:
+            launch_args += ["--no-sandbox", "--disable-setuid-sandbox"]
+        browser = pw.chromium.launch(headless=headless, args=launch_args)
+        try:
+            ctx = browser.new_context(
+                user_agent=(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                ),
+                viewport={"width": 1280, "height": 800},
+                locale="zh-CN",
+            )
+            page = ctx.new_page()
+
+            log.info("打开 weibo.com ...")
+            page.goto("https://weibo.com", wait_until="domcontentloaded", timeout=30000)
+            time.sleep(3)
+
+            # 判断是否已登录：登录后页面会出现用户导航链接，否则停留在登录页
+            current_href = page.evaluate("window.location.href")
+            log.info("当前 URL: %s", current_href)
+
+            # 登录成功的标志：cookie 里有 SUB 且页面有 /u/ 或 /n/ 链接
+            def _logged_in() -> bool:
+                cookies = ctx.cookies()
+                if not any(c["name"] == "SUB" and c.get("value") for c in cookies):
+                    return False
+                return bool(page.query_selector('a[href*="/u/"], a[href*="/n/"]'))
+
+            if _logged_in():
+                log.info("已有有效 cookie，直接提取")
+            else:
+                # 截图二维码，无头模式下尝试用系统程序打开
+                page.screenshot(path=QRCODE_PATH)
+                log.info("=" * 60)
+                log.info("📱 二维码已截图 -> %s", QRCODE_PATH)
+                log.info("请用微博 APP 扫码登录（等待最多 120 秒）")
+                if headless:
+                    _open_image_cross_platform(QRCODE_PATH)
+                else:
+                    log.info("（如未自动弹出二维码，请查看上面的图片路径）")
+                log.info("=" * 60)
+
+                log.info("等待扫码...")
+                detected = False
+                for _ in range(120):
+                    time.sleep(1)
+                    try:
+                        if _logged_in():
+                            log.info("🔍 检测到扫码登录，正在处理...")
+                            try:
+                                page.wait_for_load_state("networkidle", timeout=15000)
+                            except Exception:
+                                pass
+                            time.sleep(2)
+                            detected = True
+                            break
+                    except Exception:
+                        break
+                if not detected:
+                    browser.close()
+                    raise RuntimeError("扫码超时（120 秒），请重新运行 --renew-cookie")
+
+            # 只拿 .weibo.com 域名的 cookie
+            raw_cookies = ctx.cookies()
+            deduped: dict[str, str] = {}
+            for c in raw_cookies:
+                domain = c.get("domain", "")
+                if not domain.endswith(".weibo.com") and domain != "weibo.com":
+                    continue
+                deduped[c["name"]] = c["value"]
+            cookie_str = "; ".join(f"{k}={v}" for k, v in sorted(deduped.items()))
+        finally:
+            browser.close()
+
+    if "SUB" not in deduped:
+        raise RuntimeError("未提取到 SUB cookie，登录可能未成功")
+
+    # 存入数据库
+    set_db_path(db_path)
+    conn = get_conn()
+    set_cookie(conn, cookie_str)
+    conn.close()
+    log.info("✅ Cookie 已存入数据库 (%s)", db_path)
+    return cookie_str

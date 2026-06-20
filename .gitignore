@@ -4,3 +4,4 @@ __pycache__/
 weibo_blog.db
 *.db-journal
 .pytest_cache/
+qrcode.png
