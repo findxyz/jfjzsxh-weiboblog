@@ -78,11 +78,9 @@ async function loadBloggers() {
     opt.textContent = b.screen_name || `uid:${b.uid}`;
     bloggerSelect.appendChild(opt);
   }
-  // 默认选第一个博主（单博主场景最自然）
-  if (bloggers.length) {
-    bloggerSelect.value = bloggers[0].uid;
-    currentUid = bloggers[0].uid;
-  }
+  // 默认选「全部博主」（value="" → currentUid=null → 查询不带 uid 过滤）
+  bloggerSelect.value = "";
+  currentUid = null;
 }
 
 bloggerSelect.addEventListener("change", async () => {
