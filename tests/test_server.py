@@ -304,5 +304,50 @@ class SearchApiTest(_ServerTestBase):
         self.assertEqual(data["total"], 0)
 
 
+class ImgProxyApiTest(_ServerTestBase):
+    """/api/img?url= 代理 sinaimg.cn 图片，带 Referer 绕防盗链。
+
+    不打真实网络：mock server.fetch_image 返回固定字节流。
+    """
+    def test_img_proxies_sinaimg(self):
+        from unittest import mock
+        fake = mock.MagicMock()
+        fake.status_code = 200
+        fake.content = b"\xff\xd8\xff\xe0FAKEJPEG"
+        fake.headers = {"Content-Type": "image/jpeg"}
+        with mock.patch("server.fetch_image", return_value=fake) as m:
+            status, body = self._get("/api/img?url=https://wx2.sinaimg.cn/orj960/abc.jpg")
+        self.assertEqual(status, 200)
+        self.assertIn("image/jpeg", self._last_content_type)
+        self.assertTrue(body.startswith(b"\xff\xd8"))
+        # 确认带了 Referer: https://weibo.com/
+        args, kwargs = m.call_args
+        self.assertEqual(args[0], "https://wx2.sinaimg.cn/orj960/abc.jpg")
+        self.assertEqual(kwargs.get("referer"), "https://weibo.com/")
+
+    def test_img_rejects_non_sinaimg(self):
+        # SSRF 防护：只允许 *.sinaimg.cn
+        from urllib.parse import quote
+        status, body = self._get_json(f"/api/img?url={quote('https://evil.com/x.jpg')}")
+        self.assertEqual(status, 403)
+        self.assertIn("error", body)
+
+    def test_img_missing_url_returns_400(self):
+        status, body = self._get_json("/api/img")
+        self.assertEqual(status, 400)
+        self.assertIn("error", body)
+
+    def test_img_upstream_403_passes_through(self):
+        # sinaimg 上游 403 → 透传给客户端
+        from unittest import mock
+        fake = mock.MagicMock()
+        fake.status_code = 403
+        fake.content = b"forbidden"
+        fake.headers = {"Content-Type": "text/html"}
+        with mock.patch("server.fetch_image", return_value=fake):
+            status, body = self._get("/api/img?url=https://wx2.sinaimg.cn/orj960/abc.jpg")
+        self.assertEqual(status, 403)
+
+
 if __name__ == "__main__":
     unittest.main()

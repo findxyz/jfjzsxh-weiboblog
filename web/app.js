@@ -220,7 +220,9 @@ function openLightbox(urls, index = 0) {
 function renderLbImage() {
   const url = lbUrls[lbIndex] || "";
   const counter = lbUrls.length > 1 ? `${lbIndex + 1} / ${lbUrls.length}` : "";
-  lbStage.innerHTML = `<img src="${escHtml(url)}" alt="图片">` +
+  // 走 server 代理带 Referer，绕 sinaimg 防盗链（直链会 403）
+  const proxySrc = `/api/img?url=${encodeURIComponent(url)}`;
+  lbStage.innerHTML = `<img src="${escHtml(proxySrc)}" alt="图片">` +
     (counter ? `<div class="lb-counter">${counter}</div>` : "") +
     (lbIndex > 0 ? `<button class="lb-prev" type="button" title="上一张">‹</button>` : "") +
     (lbIndex < lbUrls.length - 1 ? `<button class="lb-next" type="button" title="下一张">›</button>` : "");

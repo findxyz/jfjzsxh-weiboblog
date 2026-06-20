@@ -45,6 +45,39 @@ def open_db(db_path):
     return conn
 
 
+# ---------- 图片代理 ----------
+
+def fetch_image(url, referer="https://weibo.com/"):
+    """带 Referer 请求 sinaimg.cn 图片，返回 requests.Response。
+
+    sinaimg 防盗链：无 Referer 或非 weibo 域 Referer → 403。浏览器 <img> 带的是
+    本查看器页面的 Referer（127.0.0.1:8766），故直链加载失败。由 server 统一带
+    Referer: https://weibo.com/ 代理取图。requests 在 crawler 已是依赖，惰性导入
+    不影响 server 模块静态导入。
+    """
+    import requests
+    import urllib3
+    urllib3.disable_warnings()
+    headers = {
+        "Referer": referer,
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        ),
+    }
+    return requests.get(url, headers=headers, verify=False, timeout=15)
+
+
+def _is_allowed_img_host(url):
+    """SSRF 防护：只允许 *.sinaimg.cn 域名的图片代理。"""
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return False
+    host = (parsed.hostname or "").lower()
+    return parsed.scheme in ("http", "https") and host.endswith(".sinaimg.cn")
+
+
 # ---------- 查询函数 ----------
 
 def query_blogger(conn):
@@ -293,6 +326,17 @@ class Handler(BaseHTTPRequestHandler):
                 end = qs.get("end", [None])[0]
                 limit = int(qs.get("limit", ["1000"])[0])
                 self._send_json(query_search(conn, q, start, end, limit))
+            elif path == "/api/img":
+                # 图片代理：带 Referer 取 sinaimg，绕防盗链。SSRF 限制只代理 sinaimg.cn
+                url = qs.get("url", [None])[0]
+                if not url:
+                    self._send_json({"error": "missing url"}, status=400)
+                elif not _is_allowed_img_host(url):
+                    self._send_json({"error": "host not allowed"}, status=403)
+                else:
+                    resp = fetch_image(url, referer="https://weibo.com/")
+                    ctype = resp.headers.get("Content-Type", "image/jpeg")
+                    self._send_text(resp.content, status=resp.status_code, content_type=ctype)
             else:
                 self._send_json({"error": "not found"}, status=404)
         except Exception as e:
