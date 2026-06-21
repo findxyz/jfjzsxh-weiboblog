@@ -625,12 +625,25 @@ async function pollSync() {
 
 // ── 自动同步（每 60 秒，默认开启）─────
 const autoRefreshCheck = $("auto-refresh-check");
+const autoRefreshCountdown = $("auto-refresh-countdown");
 let autoRefreshTimer = null;
-const AUTO_REFRESH_INTERVAL = 60 * 1000;
+let autoRefreshSeconds = 0;  // 距下次同步剩余秒数
+const AUTO_REFRESH_INTERVAL = 60;
+
+function updateCountdownDisplay() {
+  if (autoRefreshCheck.checked) {
+    autoRefreshCountdown.textContent = `${autoRefreshSeconds}s`;
+    autoRefreshCountdown.hidden = false;
+  } else {
+    autoRefreshCountdown.hidden = true;
+  }
+}
 
 function startAutoRefresh() {
   if (autoRefreshTimer) return;
-  autoRefreshTimer = setInterval(autoRefreshTick, AUTO_REFRESH_INTERVAL);
+  autoRefreshSeconds = AUTO_REFRESH_INTERVAL;
+  updateCountdownDisplay();
+  autoRefreshTimer = setInterval(autoRefreshTick, 1000);
 }
 
 function stopAutoRefresh() {
@@ -638,17 +651,26 @@ function stopAutoRefresh() {
     clearInterval(autoRefreshTimer);
     autoRefreshTimer = null;
   }
+  updateCountdownDisplay();
 }
 
 async function autoRefreshTick() {
-  // 已有同步在跑则跳过，避免并发
-  try {
-    const st = await (await fetch("/api/sync/status")).json();
-    if (st.running) return;
-  } catch (e) {
-    return;  // 状态查询失败，跳过本次
+  autoRefreshSeconds--;
+  if (autoRefreshSeconds <= 0) {
+    // 倒计时归零：触发同步，重置计时
+    autoRefreshSeconds = AUTO_REFRESH_INTERVAL;
+    updateCountdownDisplay();
+    // 已有同步在跑则跳过，避免并发
+    try {
+      const st = await (await fetch("/api/sync/status")).json();
+      if (st.running) return;
+    } catch (e) {
+      return;  // 状态查询失败，跳过本次
+    }
+    runSync();
+  } else {
+    updateCountdownDisplay();
   }
-  runSync();
 }
 
 autoRefreshCheck.addEventListener("change", () => {

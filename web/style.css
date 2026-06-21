@@ -36,6 +36,7 @@ body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 .ar-thumb { position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; transition: left .2s; }
 .ar-toggle input:checked + .ar-track { background: #ff8200; }
 .ar-toggle input:checked + .ar-track .ar-thumb { left: 16px; }
+.ar-countdown { font-size: 12px; color: #ff8200; font-variant-numeric: tabular-nums; min-width: 26px; }
 
 #main { flex: 1; display: flex; min-height: 0; }
 
