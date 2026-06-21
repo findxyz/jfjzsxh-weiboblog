@@ -356,6 +356,25 @@ class BloggerFilterApiTest(_ServerTestBase):
         names = [b["screen_name"] for b in data]
         self.assertEqual(names, ["other", "tombkeeper"])  # 按昵称排序
 
+    def test_bloggers_includes_avatar_stripped(self):
+        # 给 tombkeeper 设一个带签名参数的 avatar，断言返回的是去签名基准 URL
+        import sqlite3 as _sqlite3
+        conn = _sqlite3.connect(self.db_path)
+        conn.execute(
+            "UPDATE bloggers SET avatar=? WHERE uid=1401527553",
+            ("https://tvax3.sinaimg.cn/crop.0.0.503.503.180/abc.jpg?KID=imgbed,tva&Expires=1&ssig=x",),
+        )
+        conn.commit()
+        conn.close()
+        status, data = self._get_json("/api/bloggers")
+        self.assertEqual(status, 200)
+        tk = next(b for b in data if b["uid"] == 1401527553)
+        self.assertEqual(tk["avatar"],
+                         "https://tvax3.sinaimg.cn/crop.0.0.503.503.180/abc.jpg")
+        # 未设 avatar 的博主返回空串
+        other = next(b for b in data if b["uid"] == 999)
+        self.assertEqual(other["avatar"], "")
+
     def test_months_filtered_by_uid(self):
         # 不带 uid：两个博主合计
         status, data = self._get_json("/api/months")

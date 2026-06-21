@@ -150,6 +150,13 @@ def _is_allowed_img_host(url):
     return parsed.scheme in ("http", "https") and host.endswith(".sinaimg.cn")
 
 
+def strip_avatar_sig(url):
+    """微博头像 URL 带签名参数（KID/Expires/ssig）会过期，去掉后基准 URL 永久可访问。"""
+    if not url:
+        return ""
+    return url.split("?", 1)[0]
+
+
 # ---------- 查询函数 ----------
 
 def query_blogger(conn):
@@ -170,13 +177,14 @@ def query_blogger(conn):
 def query_bloggers(conn):
     """所有博主列表（供顶栏选择器）。按昵称排序。"""
     rows = conn.execute(
-        "SELECT uid, screen_name, profile_url, verified FROM bloggers ORDER BY screen_name"
+        "SELECT uid, screen_name, profile_url, verified, avatar FROM bloggers ORDER BY screen_name"
     ).fetchall()
     return [{
         "uid": r["uid"],
         "screen_name": r["screen_name"],
         "profile_url": r["profile_url"],
         "verified": r["verified"],
+        "avatar": strip_avatar_sig(r["avatar"]),
     } for r in rows]
 
 
