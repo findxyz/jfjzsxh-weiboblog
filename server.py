@@ -177,13 +177,14 @@ def query_blogger(conn):
 def query_bloggers(conn):
     """所有博主列表（供顶栏选择器）。按昵称排序。"""
     rows = conn.execute(
-        "SELECT uid, screen_name, profile_url, verified FROM bloggers ORDER BY screen_name"
+        "SELECT uid, screen_name, profile_url, verified, avatar FROM bloggers ORDER BY screen_name"
     ).fetchall()
     return [{
         "uid": r["uid"],
         "screen_name": r["screen_name"],
         "profile_url": r["profile_url"],
         "verified": r["verified"],
+        "avatar": strip_avatar_sig(r["avatar"]),
     } for r in rows]
 
 
