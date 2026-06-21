@@ -68,6 +68,7 @@ body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
   box-shadow: 0 2px 8px rgba(0,0,0,.12);
   border-left: 3px solid #ff8200;
   margin-bottom: 16px; padding: 14px 16px; transition: box-shadow .2s;
+  max-width: 760px;
 }
 .post-card:hover { box-shadow: 0 4px 14px rgba(0,0,0,.16); }
 .post-card.post-highlight { animation: highlight-flash 1.6s ease-out; }
