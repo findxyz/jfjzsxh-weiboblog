@@ -64,6 +64,8 @@ def parse_post(raw: dict) -> dict:
             "uid": rt_user.get("id", 0),
             "screen_name": rt_user.get("screen_name", ""),
             "created_at": rt.get("created_at", ""),
+            "is_long_text": 1 if rt.get("isLongText") else 0,
+            "long_text": "",
             "pics": _extract_pics(rt),
             "video_url": _extract_video(rt),
         }, ensure_ascii=False)

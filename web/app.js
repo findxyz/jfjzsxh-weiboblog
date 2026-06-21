@@ -59,6 +59,15 @@ function linkify(escaped) {
   );
 }
 
+function mentionify(html) {
+  // 在已 linkify 的 HTML 里把 @用户名 转成橙色可点击链接（跳 weibo.com/n/用户名）
+  // 用户名：中文/字母/数字/下划线/减号；遇标点/空格/</冒号停止
+  return html.replace(
+    /@([\u4e00-\u9fa5\w\-]+)/g,
+    '<a href="https://weibo.com/n/$1" target="_blank" rel="noopener" class="mention">@$1</a>'
+  );
+}
+
 // ── 博主列表（顶栏选择器）──────────────
 async function loadBloggers() {
   let bloggers;
@@ -251,17 +260,14 @@ function renderCard(p) {
     `</div>`;
 
   // 正文（URL 转可点击链接，含 t.cn 短链）
-  // 转发微博：text_raw 末尾的「 //@用户名:原微博内容」与引用块重复，截掉
-  let bodyText = p.text_raw || "";
-  if (p.retweeted) {
-    const cut = bodyText.search(/\s*\/\/@/);
-    if (cut >= 0) bodyText = bodyText.slice(0, cut);
-  }
+  // 转发微博的 text_raw 可能含「 //@用户名:...」嵌套引用，完整保留不截断
+  // （原微博在下方 retweeted 引用块单独展示，不靠截断去重）
+  const bodyText = p.text_raw || "";
   // 长文微博：text_raw 是 long_text 的截断前缀，只显示 long_text（完整版），避免重复
   if (p.is_long_text && p.long_text) {
-    html += `<div class="post-text">${linkify(escHtml(p.long_text))}</div>`;
+    html += `<div class="post-text">${mentionify(linkify(escHtml(p.long_text)))}</div>`;
   } else {
-    html += `<div class="post-text">${linkify(escHtml(bodyText))}</div>`;
+    html += `<div class="post-text">${mentionify(linkify(escHtml(bodyText)))}</div>`;
   }
 
   // 本微博媒体
@@ -271,9 +277,11 @@ function renderCard(p) {
   if (p.retweeted && p.retweeted.text_raw) {
     const rt = p.retweeted;
     const rtUrl = `https://weibo.com/${rt.uid}/${rt.mblogid}`;
+    // 长文：显示完整 long_text；否则 text_raw
+    const rtText = (rt.is_long_text && rt.long_text) ? rt.long_text : rt.text_raw;
     html += `<div class="post-retweet">` +
       `<a class="retweet-name" href="${escHtml(rtUrl)}" target="_blank" rel="noopener">@${escHtml(rt.screen_name || "")}</a>` +
-      `<div class="retweet-text">${linkify(escHtml(rt.text_raw))}</div>` +
+      `<div class="retweet-text">${mentionify(linkify(escHtml(rtText)))}</div>` +
       mediaHtml(rt.pics, rt.video_url, rtUrl) +
       `</div>`;
   }
