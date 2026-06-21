@@ -333,12 +333,11 @@ const searchStatus = $("search-status");
 const searchResults = $("search-results");
 
 function openSearch() {
-  // 仅首次打开填默认起止（最近 3 个月），重开保留上次关键词/结果，便于继续查看
+  // 仅首次打开填默认起止（起 2010-01-01 至今），重开保留上次关键词/结果，便于继续查看
   if (!searchStart.value || !searchEnd.value) {
     const today = new Date();
     searchEnd.value = today.toISOString().slice(0, 10);
-    const startD = new Date(today.getTime() - 90 * 86400000);
-    searchStart.value = startD.toISOString().slice(0, 10);
+    searchStart.value = "2010-01-01";
   }
   searchOverlay.hidden = false;
   searchKeyword.focus();
