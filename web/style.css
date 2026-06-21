@@ -79,7 +79,7 @@ body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 .post-time { float: right; font-size: 12px; color: #999; margin-left: 12px; }
 .post-link { float: right; font-size: 12px; color: #ff8200; text-decoration: none; }
 .post-link:hover { text-decoration: underline; }
-.post-text { font-size: 14px; color: #333; white-space: pre-wrap; word-break: break-word; line-height: 1.6; }
+.post-text { font-size: 15px; color: #333; white-space: pre-wrap; word-break: break-word; line-height: 1.6; }
 .post-text a { color: #ff8200; text-decoration: none; }
 .post-text a:hover { text-decoration: underline; }
 .post-text.long-text { margin-top: 4px; padding-top: 4px; border-top: 1px dashed #eee; }
