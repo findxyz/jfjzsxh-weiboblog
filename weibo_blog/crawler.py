@@ -89,6 +89,16 @@ class BlogCrawler:
         s.headers["Cookie"] = cookie
         return s
 
+    def _fill_retweet_longtext(self, parsed: dict) -> None:
+        """转发的原微博若为长文，调 longtext 接口补全 long_text，回写 retweeted_json。"""
+        if not parsed["retweeted_json"]:
+            return
+        rt = json.loads(parsed["retweeted_json"])
+        if not rt.get("is_long_text"):
+            return
+        rt["long_text"] = self.fetch_longtext(rt["mblogid"])
+        parsed["retweeted_json"] = json.dumps(rt, ensure_ascii=False)
+
     def fetch_mymblog(self, uid: int, page: int, since_id: str = "") -> tuple[str, list[dict]]:
         """调用 mymblog 接口，返回 (next_since_id, posts_raw_list)
 
@@ -163,6 +173,10 @@ class BlogCrawler:
                         parsed["long_text"] = self.fetch_longtext(parsed["mblogid"])
                     except Exception as e:
                         log.warning("  长文补全失败 mblogid=%s: %s", parsed["mblogid"], e)
+                try:
+                    self._fill_retweet_longtext(parsed)
+                except Exception as e:
+                    log.warning("  转发长文补全失败 mblogid=%s: %s", parsed["mblogid"], e)
                 if save_post(self.conn, parsed):
                     new_count += 1
 
@@ -213,6 +227,10 @@ class BlogCrawler:
                         parsed["long_text"] = self.fetch_longtext(parsed["mblogid"])
                     except Exception as e:
                         log.warning("  长文补全失败 mblogid=%s: %s", parsed["mblogid"], e)
+                try:
+                    self._fill_retweet_longtext(parsed)
+                except Exception as e:
+                    log.warning("  转发长文补全失败 mblogid=%s: %s", parsed["mblogid"], e)
                 if save_post(self.conn, parsed):
                     new_count += 1
 
