@@ -185,8 +185,11 @@ async function selectDay(date, itemEl) {
   if (itemEl) itemEl.classList.add("active");
   currentDay = date;
   dayIndicator.textContent = `${date}  加载中…`;
-  postList.innerHTML = "";
+  clearPostCards();
   emptyHint.hidden = true;
+  // 切换日期：清掉上一日的待插入新帖提示
+  pendingNewPosts = [];
+  dismissNewPostsBanner();
 
   let data;
   try {
@@ -194,7 +197,7 @@ async function selectDay(date, itemEl) {
     data = await getJson(`/api/posts?date=${encodeURIComponent(date)}${uidParam}`);
   } catch (e) {
     dayIndicator.textContent = date;
-    postList.innerHTML = "";
+    clearPostCards();
     emptyHint.textContent = "加载失败";
     emptyHint.hidden = false;
     return;
@@ -209,11 +212,16 @@ async function selectDay(date, itemEl) {
 }
 
 function renderPosts(posts) {
-  postList.innerHTML = "";
+  clearPostCards();
   emptyHint.hidden = true;
   for (const p of posts) {
     postList.appendChild(renderCard(p));
   }
+}
+
+// 清空正文区卡片，但保留 #new-posts-banner 等非卡片子元素
+function clearPostCards() {
+  for (const c of postList.querySelectorAll(".post-card")) c.remove();
 }
 
 // 生成媒体占位符 HTML（图片+视频），原微博与转发原微博共用
@@ -455,13 +463,146 @@ async function jumpToPost(date, mblogid) {
   });
 }
 
+// ── 新增条目提示条 ───────────────────
+const newPostsBanner = $("new-posts-banner");
+const newPostsBannerText = newPostsBanner.querySelector(".npb-text");
+let pendingNewPosts = [];  // 同步后发现的新帖，暂存等用户点提示条再插入
+
+function showNewPostsBanner(count) {
+  newPostsBannerText.textContent = `新增 ${count} 条微博，点击查看`;
+  newPostsBanner.hidden = false;
+}
+
+function dismissNewPostsBanner() {
+  newPostsBanner.hidden = true;
+  pendingNewPosts = [];
+}
+
+// 点提示条：插入暂存的新帖，滚到顶部并高亮
+newPostsBanner.addEventListener("click", (e) => {
+  if (e.target.classList.contains("npb-close")) return;
+  if (pendingNewPosts.length === 0) return;
+  // 新增卡片 prepend（微博列表按时间倒序，最新在前）
+  for (let i = pendingNewPosts.length - 1; i >= 0; i--) {
+    const card = renderCard(pendingNewPosts[i]);
+    card.classList.add("post-highlight");
+    postList.insertBefore(card, postList.firstChild);
+    setTimeout(() => card.classList.remove("post-highlight"), 2000);
+  }
+  pendingNewPosts = [];
+  dismissNewPostsBanner();
+  postList.scrollTo({ top: 0, behavior: "smooth" });
+});
+
+// 关闭按钮
+newPostsBanner.querySelector(".npb-close").addEventListener("click", (e) => {
+  e.stopPropagation();
+  dismissNewPostsBanner();
+});
+
+// 静默刷新：同步成功后局部 diff 更新当前视图，不打断阅读
+async function silentRefresh() {
+  // 搜索面板打开时不更新
+  if (!$("search-overlay").hidden) return;
+  // 没选中日期时不更新帖子（但日期树/博主仍可刷新）
+  const hadDay = currentDay !== null;
+
+  // 并行拉取三部分数据
+  const uidParam = currentUid !== null ? `&uid=${currentUid}` : "";
+  const fetches = [
+    getJson(`/api/months?${uidParam}`),
+    getJson("/api/bloggers"),
+  ];
+  if (hadDay) {
+    fetches.push(getJson(`/api/posts?date=${encodeURIComponent(currentDay)}${uidParam}`));
+  }
+  const [monthsData, bloggersData, postsData] = await Promise.all(fetches).catch(() => [null, null, null]);
+  if (!monthsData) return;  // 拉取失败，放弃本次更新
+
+  await refreshDateTree(monthsData);
+  refreshBloggerMap(bloggersData || []);
+
+  if (!hadDay || !postsData) return;
+
+  // diff 新增帖子（与已渲染卡片 + 暂存待插入的做对比）
+  const oldIds = new Set();
+  for (const card of postList.querySelectorAll(".post-card")) {
+    const id = card.id.replace("post-", "");
+    if (id) oldIds.add(id);
+  }
+  for (const p of pendingNewPosts) oldIds.add(p.mblogid);
+  const newPosts = postsData.posts.filter(p => !oldIds.has(p.mblogid));
+
+  if (newPosts.length > 0) {
+    // 暂存新帖，只显示提示条，不立即插入 DOM（不打断阅读）
+    pendingNewPosts = newPosts.concat(pendingNewPosts);
+    // 更新计数（含待插入的新帖）
+    dayIndicator.textContent = `${currentDay}  共 ${postsData.posts.length} 条`;
+    showNewPostsBanner(pendingNewPosts.length);
+  }
+}
+
+// 局部更新左侧日期树：已存在月份更新计数，新月份插入，保留展开态
+async function refreshDateTree(monthsData) {
+  // 清空 monthCache 让下面重新拉取日期（计数可能变了）
+  for (const k of Object.keys(monthCache)) delete monthCache[k];
+
+  const existing = new Map();
+  for (const grp of dateList.querySelectorAll(".month-group")) {
+    existing.set(grp.dataset.month, grp);
+  }
+  for (const m of monthsData) {
+    let grp = existing.get(m.month);
+    if (grp) {
+      // 更新月份计数
+      const cntEl = grp.querySelector(".month-header .count");
+      if (cntEl) cntEl.textContent = `(${m.count})`;
+    } else {
+      // 新月份：插入到列表（monthsData 已倒序，按出现顺序追加即可）
+      grp = document.createElement("div");
+      grp.className = "month-group";
+      grp.dataset.month = m.month;
+      grp.innerHTML =
+        `<div class="month-header">${escHtml(m.month)} <span class="count">(${m.count})</span></div>` +
+        `<div class="month-days"></div>`;
+      grp.querySelector(".month-header").addEventListener("click", () => toggleMonth(grp, m.month));
+      dateList.appendChild(grp);
+    }
+  }
+  // 月份在 monthsData 中消失的情况不处理（微博不会删，极少见）
+
+  // 已展开的月份：重新拉取日期列表，更新各日期计数 / 新增日期
+  const uidParam = currentUid !== null ? `&uid=${currentUid}` : "";
+  const openGroups = dateList.querySelectorAll(".month-group.open");
+  await Promise.all([...openGroups].map(async (grp) => {
+    const month = grp.dataset.month;
+    const daysEl = grp.querySelector(".month-days");
+    try {
+      const days = await getJson(`/api/dates?month=${encodeURIComponent(month)}${uidParam}`);
+      monthCache[month] = days;
+      renderDays(daysEl, days);
+    } catch (e) { /* 拉取失败保持原样 */ }
+  }));
+}
+
+// 更新 bloggerMap（新博主加入 / 头像名字变化更新），不重渲染下拉
+function refreshBloggerMap(bloggersData) {
+  for (const b of bloggersData) {
+    bloggerMap[b.uid] = b;
+  }
+}
+
 // ── 同步按钮（增量抓取，后台子进程）────
 const syncBtn = $("sync-btn");
 let syncPollTimer = null;
+// 同步进行中标志：避免手动+自动并发触发
+let syncInProgress = false;
 
-syncBtn.addEventListener("click", async () => {
+async function runSync() {
+  if (syncInProgress) return;
+  syncInProgress = true;
   syncBtn.disabled = true;
-  syncBtn.textContent = "同步中...";
+  syncBtn.textContent = "🔄 同步中...";
   try {
     const resp = await fetch("/api/sync", { method: "POST" });
     if (resp.status === 409) {
@@ -470,15 +611,17 @@ syncBtn.addEventListener("click", async () => {
       throw new Error("同步启动失败");
     }
   } catch (e) {
+    syncInProgress = false;
     syncBtn.disabled = false;
     syncBtn.textContent = "🔄 同步";
     setStatus("同步启动失败");
     return;
   }
-  // 轮询状态，每 2 秒
   syncPollTimer = setInterval(pollSync, 2000);
   pollSync();
-});
+}
+
+syncBtn.addEventListener("click", () => runSync());
 
 async function pollSync() {
   try {
@@ -486,11 +629,12 @@ async function pollSync() {
     if (!data.running) {
       clearInterval(syncPollTimer);
       syncPollTimer = null;
+      syncInProgress = false;
+      syncBtn.disabled = false;
+      syncBtn.textContent = "🔄 同步";
       if (data.exit_code === 0) {
-        location.reload();  // 同步成功，刷新页面
+        await silentRefresh();  // 静默更新，不再 location.reload()
       } else {
-        syncBtn.disabled = false;
-        syncBtn.textContent = "🔄 同步";
         setStatus("同步失败（exit " + data.exit_code + "），请查看日志");
       }
     }
@@ -498,6 +642,72 @@ async function pollSync() {
     // 网络错误，继续轮询
   }
 }
+
+// ── 自动同步（每 60 秒，默认开启）─────
+const autoRefreshCheck = $("auto-refresh-check");
+const autoRefreshCountdown = $("auto-refresh-countdown");
+let autoRefreshTimer = null;
+let autoRefreshSeconds = 0;  // 距下次同步剩余秒数
+const AUTO_REFRESH_INTERVAL = 60;
+
+function updateCountdownDisplay() {
+  if (autoRefreshCheck.checked) {
+    // 实心圆顺时针排空：透明区从顶部 0° 顺时针扫过吃掉绿色
+    // 60s 全绿，时间流逝透明弧顺时针增长至 0s 全空
+    const elapsed = AUTO_REFRESH_INTERVAL - autoRefreshSeconds;
+    const boundary = 360 * (elapsed / AUTO_REFRESH_INTERVAL);
+    autoRefreshCountdown.style.background =
+      `conic-gradient(from 0deg, transparent 0deg ${boundary}deg, #4caf50 ${boundary}deg 360deg)`;
+    autoRefreshCountdown.title = `距下次同步 ${autoRefreshSeconds}s`;
+    autoRefreshCountdown.hidden = false;
+  } else {
+    autoRefreshCountdown.hidden = true;
+  }
+}
+
+function startAutoRefresh() {
+  if (autoRefreshTimer) return;
+  autoRefreshSeconds = AUTO_REFRESH_INTERVAL;
+  updateCountdownDisplay();
+  autoRefreshTimer = setInterval(autoRefreshTick, 1000);
+}
+
+function stopAutoRefresh() {
+  if (autoRefreshTimer) {
+    clearInterval(autoRefreshTimer);
+    autoRefreshTimer = null;
+  }
+  updateCountdownDisplay();
+}
+
+async function autoRefreshTick() {
+  autoRefreshSeconds--;
+  if (autoRefreshSeconds <= 0) {
+    // 倒计时归零：触发同步，重置计时
+    autoRefreshSeconds = AUTO_REFRESH_INTERVAL;
+    updateCountdownDisplay();
+    // 已有同步在跑则跳过，避免并发
+    try {
+      const st = await (await fetch("/api/sync/status")).json();
+      if (st.running) return;
+    } catch (e) {
+      return;  // 状态查询失败，跳过本次
+    }
+    runSync();
+  } else {
+    updateCountdownDisplay();
+  }
+}
+
+autoRefreshCheck.addEventListener("change", () => {
+  if (autoRefreshCheck.checked) {
+    // 开启：立即同步一次，然后启动定时器
+    runSync();
+    startAutoRefresh();
+  } else {
+    stopAutoRefresh();
+  }
+});
 
 // ── 初始化 ────────────────────────────
 (async function init() {
@@ -519,4 +729,6 @@ async function pollSync() {
     emptyHint.textContent = "无微博数据";
     emptyHint.hidden = false;
   }
+  // 默认开启自动同步
+  startAutoRefresh();
 })();
