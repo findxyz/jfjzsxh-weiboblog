@@ -14,6 +14,8 @@ const emptyHint = $("empty-hint");
 
 // 当前选中博主 uid（null=全部）；切换博主时月份/日期请求带此 uid
 let currentUid = null;
+// uid → 博主对象 {uid, screen_name, profile_url, verified, avatar}，卡片作者行用
+const bloggerMap = {};
 // 月份日期缓存：{ "2025-06": [{date,count}, ...] }
 const monthCache = {};
 let currentDay = null;
@@ -73,6 +75,7 @@ async function loadBloggers() {
   allOpt.textContent = "全部博主";
   bloggerSelect.appendChild(allOpt);
   for (const b of bloggers) {
+    bloggerMap[b.uid] = b;
     const opt = document.createElement("option");
     opt.value = b.uid;
     opt.textContent = b.screen_name || `uid:${b.uid}`;
@@ -226,10 +229,26 @@ function renderCard(p) {
   card.className = "post-card";
   card.id = "post-" + p.mblogid;
 
-  // 原微博链接（右上角，新标签打开）
   const weiboUrl = `https://weibo.com/${p.uid}/${p.mblogid}`;
-  let html = `<span class="post-time">${fmtTime(p.created_at)}</span>` +
-    `<a class="post-link" href="${escHtml(weiboUrl)}" target="_blank" rel="noopener" title="在微博查看">原微博 ↗</a>`;
+
+  // 作者头部行：头像+名（左） / 时间+原微博链接（右）
+  const b = bloggerMap[p.uid];
+  const profileUrl = b && b.profile_url ? b.profile_url : "#";
+  const avatarUrl = b && b.avatar ? b.avatar : "";
+  const authorName = b ? (b.screen_name || `uid:${p.uid}`) : `uid:${p.uid}`;
+  const avatarHtml = avatarUrl
+    ? `<img class="avatar" src="${escHtml(avatarUrl)}" alt="" onerror="this.style.display='none'">`
+    : "";
+  let html = `<div class="post-head">` +
+    `<div class="post-author">` +
+    avatarHtml +
+    `<a class="author-name" href="${escHtml(profileUrl)}" target="_blank" rel="noopener">${escHtml(authorName)}</a>` +
+    `</div>` +
+    `<div class="post-head-actions">` +
+    `<span class="post-time">${fmtTime(p.created_at)}</span>` +
+    `<a class="post-link" href="${escHtml(weiboUrl)}" target="_blank" rel="noopener" title="在微博查看">原微博 ↗</a>` +
+    `</div>` +
+    `</div>`;
 
   // 正文（URL 转可点击链接，含 t.cn 短链）
   // 转发微博：text_raw 末尾的「 //@用户名:原微博内容」与引用块重复，截掉
