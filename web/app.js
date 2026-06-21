@@ -59,6 +59,15 @@ function linkify(escaped) {
   );
 }
 
+function mentionify(html) {
+  // 在已 linkify 的 HTML 里把 @用户名 转成橙色可点击链接（跳 weibo.com/n/用户名）
+  // 用户名：中文/字母/数字/下划线/减号；遇标点/空格/</冒号停止
+  return html.replace(
+    /@([\u4e00-\u9fa5\w\-]+)/g,
+    '<a href="https://weibo.com/n/$1" target="_blank" rel="noopener" class="mention">@$1</a>'
+  );
+}
+
 // ── 博主列表（顶栏选择器）──────────────
 async function loadBloggers() {
   let bloggers;
@@ -256,9 +265,9 @@ function renderCard(p) {
   const bodyText = p.text_raw || "";
   // 长文微博：text_raw 是 long_text 的截断前缀，只显示 long_text（完整版），避免重复
   if (p.is_long_text && p.long_text) {
-    html += `<div class="post-text">${linkify(escHtml(p.long_text))}</div>`;
+    html += `<div class="post-text">${mentionify(linkify(escHtml(p.long_text)))}</div>`;
   } else {
-    html += `<div class="post-text">${linkify(escHtml(bodyText))}</div>`;
+    html += `<div class="post-text">${mentionify(linkify(escHtml(bodyText)))}</div>`;
   }
 
   // 本微博媒体
@@ -272,7 +281,7 @@ function renderCard(p) {
     const rtText = (rt.is_long_text && rt.long_text) ? rt.long_text : rt.text_raw;
     html += `<div class="post-retweet">` +
       `<a class="retweet-name" href="${escHtml(rtUrl)}" target="_blank" rel="noopener">@${escHtml(rt.screen_name || "")}</a>` +
-      `<div class="retweet-text">${linkify(escHtml(rtText))}</div>` +
+      `<div class="retweet-text">${mentionify(linkify(escHtml(rtText)))}</div>` +
       mediaHtml(rt.pics, rt.video_url, rtUrl) +
       `</div>`;
   }
