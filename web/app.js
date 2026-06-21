@@ -455,6 +455,35 @@ async function jumpToPost(date, mblogid) {
   });
 }
 
+// ── 新增条目提示条 ───────────────────
+const newPostsBanner = $("new-posts-banner");
+const newPostsBannerText = newPostsBanner.querySelector(".npb-text");
+
+function showNewPostsBanner(count) {
+  newPostsBannerText.textContent = `新增 ${count} 条微博`;
+  newPostsBanner.hidden = false;
+}
+
+function dismissNewPostsBanner() {
+  newPostsBanner.hidden = true;
+}
+
+// 点提示条（非关闭按钮）：滚动到第一条新增帖子并高亮
+newPostsBanner.addEventListener("click", (e) => {
+  if (e.target.classList.contains("npb-close")) return;
+  const firstNew = postList.querySelector(".post-card.post-highlight")
+    || postList.querySelector(".post-card");
+  if (firstNew) {
+    firstNew.scrollIntoView({ block: "center", behavior: "smooth" });
+  }
+});
+
+// 关闭按钮
+newPostsBanner.querySelector(".npb-close").addEventListener("click", (e) => {
+  e.stopPropagation();
+  dismissNewPostsBanner();
+});
+
 // 静默刷新：同步成功后局部 diff 更新当前视图，不打断阅读
 async function silentRefresh() {
   // 搜索面板打开时不更新
