@@ -29,7 +29,7 @@ body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 #sync-btn:disabled { cursor: not-allowed; opacity: 0.6; }
 #status { margin-left: auto; color: #999; font-size: 13px; }
 
-/* 自动刷新开关 */
+/* 自动同步开关 */
 .ar-toggle { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; font-size: 13px; color: #666; }
 .ar-toggle input { display: none; }
 .ar-track { width: 32px; height: 18px; border-radius: 9px; background: #ddd; position: relative; transition: background .2s; flex-shrink: 0; }

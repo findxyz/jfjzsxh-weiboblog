@@ -623,7 +623,7 @@ async function pollSync() {
   }
 }
 
-// ── 自动刷新（每 60 秒，默认开启）─────
+// ── 自动同步（每 60 秒，默认开启）─────
 const autoRefreshCheck = $("auto-refresh-check");
 let autoRefreshTimer = null;
 const AUTO_REFRESH_INTERVAL = 60 * 1000;
@@ -681,6 +681,6 @@ autoRefreshCheck.addEventListener("change", () => {
     emptyHint.textContent = "无微博数据";
     emptyHint.hidden = false;
   }
-  // 默认开启自动刷新
+  // 默认开启自动同步
   startAutoRefresh();
 })();
