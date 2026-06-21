@@ -15,7 +15,10 @@
       <input type="checkbox" id="auto-refresh-check" checked>
       <span class="ar-track"><span class="ar-thumb"></span></span>
       <span class="ar-label">自动同步</span>
-      <span id="auto-refresh-countdown" class="ar-countdown"></span>
+      <svg id="auto-refresh-countdown" class="ar-countdown" width="20" height="20" viewBox="0 0 20 20" aria-hidden="true" title="距下次同步 60s">
+        <circle class="ar-ring-bg" cx="10" cy="10" r="8" fill="none" stroke="#eee" stroke-width="2"/>
+        <circle class="ar-ring" cx="10" cy="10" r="8" fill="none" stroke="#4caf50" stroke-width="2" stroke-dasharray="50.27" stroke-dashoffset="0" transform="rotate(-90 10 10)"/>
+      </svg>
     </label>
     <span id="status"></span>
   </div>
