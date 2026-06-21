@@ -632,10 +632,12 @@ const AUTO_REFRESH_INTERVAL = 60;
 
 function updateCountdownDisplay() {
   if (autoRefreshCheck.checked) {
-    // 实心圆顺时针排空：60s 满圆（绿色 0°→360°），时间流逝绿色弧从尾部缩短至 0s 空圆
-    const greenDeg = 360 * (autoRefreshSeconds / AUTO_REFRESH_INTERVAL);
+    // 实心圆顺时针排空：透明区从顶部 0° 顺时针扫过吃掉绿色
+    // 60s 全绿，时间流逝透明弧顺时针增长至 0s 全空
+    const elapsed = AUTO_REFRESH_INTERVAL - autoRefreshSeconds;
+    const boundary = 360 * (elapsed / AUTO_REFRESH_INTERVAL);
     autoRefreshCountdown.style.background =
-      `conic-gradient(from 0deg, #4caf50 0deg ${greenDeg}deg, transparent ${greenDeg}deg 360deg)`;
+      `conic-gradient(from 0deg, transparent 0deg ${boundary}deg, #4caf50 ${boundary}deg 360deg)`;
     autoRefreshCountdown.title = `距下次同步 ${autoRefreshSeconds}s`;
     autoRefreshCountdown.hidden = false;
   } else {
