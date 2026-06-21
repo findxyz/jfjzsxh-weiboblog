@@ -508,6 +508,7 @@ async function silentRefresh() {
   if (!$("search-overlay").hidden) return;
   // 没选中日期时不更新帖子（但日期树/博主仍可刷新）
   const hadDay = currentDay !== null;
+  const refreshDay = currentDay;  // 记录发起时的日期，await 后若用户已切走则放弃
 
   // 并行拉取三部分数据
   const uidParam = currentUid !== null ? `&uid=${currentUid}` : "";
@@ -516,7 +517,7 @@ async function silentRefresh() {
     getJson("/api/bloggers"),
   ];
   if (hadDay) {
-    fetches.push(getJson(`/api/posts?date=${encodeURIComponent(currentDay)}${uidParam}`));
+    fetches.push(getJson(`/api/posts?date=${encodeURIComponent(refreshDay)}${uidParam}`));
   }
   const [monthsData, bloggersData, postsData] = await Promise.all(fetches).catch(() => [null, null, null]);
   if (!monthsData) return;  // 拉取失败，放弃本次更新
@@ -525,6 +526,8 @@ async function silentRefresh() {
   refreshBloggerMap(bloggersData || []);
 
   if (!hadDay || !postsData) return;
+  // await 期间用户已切换日期：拉到的是旧日期的数据，丢弃，避免错误提示
+  if (currentDay !== refreshDay) return;
 
   // diff 新增帖子（与已渲染卡片 + 暂存待插入的做对比）
   const oldIds = new Set();
