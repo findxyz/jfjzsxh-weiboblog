@@ -86,6 +86,16 @@ def test_parse_post_retweet_includes_pics_and_video():
     assert rt2["video_url"] == "https://f.video.weibocdn.com/rt.mp4"
 
 
+def test_parse_post_retweet_longtext_flag():
+    """转发原微博 isLongText=True → retweeted_json 含 is_long_text=1、long_text 空串"""
+    raw = load_fixture("post_with_retweet.json")
+    raw["retweeted_status"]["isLongText"] = True
+    p = parse_post(raw)
+    rt = json.loads(p["retweeted_json"])
+    assert rt["is_long_text"] == 1
+    assert rt["long_text"] == ""  # 由 crawler 补全，parser 只置空
+
+
 def test_parse_post_longtext_flag():
     """isLongText=True 标记为 1"""
     raw = load_fixture("post_longtext.json")
