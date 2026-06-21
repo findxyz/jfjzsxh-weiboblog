@@ -626,17 +626,16 @@ async function pollSync() {
 // ── 自动同步（每 60 秒，默认开启）─────
 const autoRefreshCheck = $("auto-refresh-check");
 const autoRefreshCountdown = $("auto-refresh-countdown");
-const autoRing = autoRefreshCountdown.querySelector(".ar-ring");
-const RING_CIRCUMFERENCE = 2 * Math.PI * 8;  // r=8
 let autoRefreshTimer = null;
 let autoRefreshSeconds = 0;  // 距下次同步剩余秒数
 const AUTO_REFRESH_INTERVAL = 60;
 
 function updateCountdownDisplay() {
   if (autoRefreshCheck.checked) {
-    // 剩余时间 → 圆圈填充：60s 满圆，0s 空圆，归零后重置为满圆
-    const ratio = autoRefreshSeconds / AUTO_REFRESH_INTERVAL;
-    autoRing.style.strokeDashoffset = String(RING_CIRCUMFERENCE * (1 - ratio));
+    // 实心圆顺时针排空：60s 满圆（绿色 0°→360°），时间流逝绿色弧从尾部缩短至 0s 空圆
+    const greenDeg = 360 * (autoRefreshSeconds / AUTO_REFRESH_INTERVAL);
+    autoRefreshCountdown.style.background =
+      `conic-gradient(from 0deg, #4caf50 0deg ${greenDeg}deg, transparent ${greenDeg}deg 360deg)`;
     autoRefreshCountdown.title = `距下次同步 ${autoRefreshSeconds}s`;
     autoRefreshCountdown.hidden = false;
   } else {
