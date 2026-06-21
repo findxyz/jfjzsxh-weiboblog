@@ -271,9 +271,11 @@ function renderCard(p) {
   if (p.retweeted && p.retweeted.text_raw) {
     const rt = p.retweeted;
     const rtUrl = `https://weibo.com/${rt.uid}/${rt.mblogid}`;
+    // 长文：显示完整 long_text；否则 text_raw
+    const rtText = (rt.is_long_text && rt.long_text) ? rt.long_text : rt.text_raw;
     html += `<div class="post-retweet">` +
       `<a class="retweet-name" href="${escHtml(rtUrl)}" target="_blank" rel="noopener">@${escHtml(rt.screen_name || "")}</a>` +
-      `<div class="retweet-text">${linkify(escHtml(rt.text_raw))}</div>` +
+      `<div class="retweet-text">${linkify(escHtml(rtText))}</div>` +
       mediaHtml(rt.pics, rt.video_url, rtUrl) +
       `</div>`;
   }
