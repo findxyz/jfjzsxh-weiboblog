@@ -131,6 +131,7 @@ class BlogCrawler:
 
     def fetch_longtext(self, mblogid: str) -> str:
         """调用 longtext 接口，返回长文全文"""
+        self.session.headers["referer"] = f"{API_BASE}/"
         resp = _request_with_retry(
             self.session, "GET", f"{API_BASE}/ajax/statuses/longtext",
             params={"id": mblogid}, timeout=15,
