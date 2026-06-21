@@ -185,7 +185,7 @@ async function selectDay(date, itemEl) {
   if (itemEl) itemEl.classList.add("active");
   currentDay = date;
   dayIndicator.textContent = `${date}  加载中…`;
-  postList.innerHTML = "";
+  clearPostCards();
   emptyHint.hidden = true;
   // 切换日期：清掉上一日的待插入新帖提示
   pendingNewPosts = [];
@@ -197,7 +197,7 @@ async function selectDay(date, itemEl) {
     data = await getJson(`/api/posts?date=${encodeURIComponent(date)}${uidParam}`);
   } catch (e) {
     dayIndicator.textContent = date;
-    postList.innerHTML = "";
+    clearPostCards();
     emptyHint.textContent = "加载失败";
     emptyHint.hidden = false;
     return;
@@ -212,11 +212,16 @@ async function selectDay(date, itemEl) {
 }
 
 function renderPosts(posts) {
-  postList.innerHTML = "";
+  clearPostCards();
   emptyHint.hidden = true;
   for (const p of posts) {
     postList.appendChild(renderCard(p));
   }
+}
+
+// 清空正文区卡片，但保留 #new-posts-banner 等非卡片子元素
+function clearPostCards() {
+  for (const c of postList.querySelectorAll(".post-card")) c.remove();
 }
 
 // 生成媒体占位符 HTML（图片+视频），原微博与转发原微博共用
@@ -514,7 +519,7 @@ async function silentRefresh() {
   const [monthsData, bloggersData, postsData] = await Promise.all(fetches).catch(() => [null, null, null]);
   if (!monthsData) return;  // 拉取失败，放弃本次更新
 
-  refreshDateTree(monthsData);
+  await refreshDateTree(monthsData);
   refreshBloggerMap(bloggersData || []);
 
   if (!hadDay || !postsData) return;
@@ -538,8 +543,8 @@ async function silentRefresh() {
 }
 
 // 局部更新左侧日期树：已存在月份更新计数，新月份插入，保留展开态
-function refreshDateTree(monthsData) {
-  // 清空 monthCache 让下次 toggleMonth 重新拉取（日期计数可能变了）
+async function refreshDateTree(monthsData) {
+  // 清空 monthCache 让下面重新拉取日期（计数可能变了）
   for (const k of Object.keys(monthCache)) delete monthCache[k];
 
   const existing = new Map();
@@ -549,7 +554,7 @@ function refreshDateTree(monthsData) {
   for (const m of monthsData) {
     let grp = existing.get(m.month);
     if (grp) {
-      // 更新计数
+      // 更新月份计数
       const cntEl = grp.querySelector(".month-header .count");
       if (cntEl) cntEl.textContent = `(${m.count})`;
     } else {
@@ -565,6 +570,19 @@ function refreshDateTree(monthsData) {
     }
   }
   // 月份在 monthsData 中消失的情况不处理（微博不会删，极少见）
+
+  // 已展开的月份：重新拉取日期列表，更新各日期计数 / 新增日期
+  const uidParam = currentUid !== null ? `&uid=${currentUid}` : "";
+  const openGroups = dateList.querySelectorAll(".month-group.open");
+  await Promise.all([...openGroups].map(async (grp) => {
+    const month = grp.dataset.month;
+    const daysEl = grp.querySelector(".month-days");
+    try {
+      const days = await getJson(`/api/dates?month=${encodeURIComponent(month)}${uidParam}`);
+      monthCache[month] = days;
+      renderDays(daysEl, days);
+    } catch (e) { /* 拉取失败保持原样 */ }
+  }));
 }
 
 // 更新 bloggerMap（新博主加入 / 头像名字变化更新），不重渲染下拉
