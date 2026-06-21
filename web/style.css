@@ -182,6 +182,12 @@ body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 .lightbox-content { position: relative; max-width: 90vw; max-height: 90vh; }
 .lightbox-stage { position: relative; }
 .lightbox-stage img { max-width: 90vw; max-height: 90vh; object-fit: contain; display: block; }
+/* 加载占位：图片未载入时撑开 stage，控制按钮不挤作一团；载入后隐藏 */
+.lb-loading {
+  width: 60vw; height: 60vh; display: flex; align-items: center; justify-content: center;
+  color: #aaa; font-size: 32px;
+}
+.lightbox-stage.loaded .lb-loading { display: none; }
 .lb-counter {
   position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
   color: #fff; font-size: 13px; background: rgba(0,0,0,.5); padding: 2px 12px; border-radius: 10px;

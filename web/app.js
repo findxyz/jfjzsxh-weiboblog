@@ -334,10 +334,22 @@ function renderLbImage() {
   const counter = lbUrls.length > 1 ? `${lbIndex + 1} / ${lbUrls.length}` : "";
   // 走 server 代理带 Referer，绕 sinaimg 防盗链（直链会 403）
   const proxySrc = `/api/img?url=${encodeURIComponent(url)}`;
-  lbStage.innerHTML = `<img src="${escHtml(proxySrc)}" alt="图片">` +
+  // 先放加载占位撑开 stage，图片载入后再替换，避免控制按钮加载期挤作一团
+  lbStage.classList.remove("loaded");
+  lbStage.innerHTML = `<div class="lb-loading">加载中…</div>` +
+    `<img src="${escHtml(proxySrc)}" alt="图片" hidden>` +
     (counter ? `<div class="lb-counter">${counter}</div>` : "") +
     (lbIndex > 0 ? `<button class="lb-prev" type="button" title="上一张">‹</button>` : "") +
     (lbIndex < lbUrls.length - 1 ? `<button class="lb-next" type="button" title="下一张">›</button>` : "");
+  const img = lbStage.querySelector("img");
+  function onImgReady(ok) {
+    if (ok) { img.hidden = false; lbStage.classList.add("loaded"); }
+    else { lbStage.querySelector(".lb-loading").textContent = "加载失败"; }
+  }
+  img.addEventListener("load", () => onImgReady(true));
+  img.addEventListener("error", () => onImgReady(false));
+  // 缓存命中时 load 可能在绑定前已触发
+  if (img.complete) onImgReady(img.naturalWidth > 0);
   const prev = lbStage.querySelector(".lb-prev");
   const next = lbStage.querySelector(".lb-next");
   if (prev) prev.addEventListener("click", (e) => { e.stopPropagation(); lbIndex--; renderLbImage(); });
