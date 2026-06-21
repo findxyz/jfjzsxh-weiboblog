@@ -455,8 +455,93 @@ async function jumpToPost(date, mblogid) {
   });
 }
 
-// 静默刷新：同步成功后局部更新当前视图（Task 4 实现）
-async function silentRefresh() { /* 占位，Task 4 替换 */ }
+// 静默刷新：同步成功后局部 diff 更新当前视图，不打断阅读
+async function silentRefresh() {
+  // 搜索面板打开时不更新
+  if (!$("search-overlay").hidden) return;
+  // 没选中日期时不更新帖子（但日期树/博主仍可刷新）
+  const hadDay = currentDay !== null;
+
+  // 并行拉取三部分数据
+  const uidParam = currentUid !== null ? `&uid=${currentUid}` : "";
+  const fetches = [
+    getJson(`/api/months?${uidParam}`),
+    getJson("/api/bloggers"),
+  ];
+  if (hadDay) {
+    fetches.push(getJson(`/api/posts?date=${encodeURIComponent(currentDay)}${uidParam}`));
+  }
+  const [monthsData, bloggersData, postsData] = await Promise.all(fetches).catch(() => [null, null, null]);
+  if (!monthsData) return;  // 拉取失败，放弃本次更新
+
+  refreshDateTree(monthsData);
+  refreshBloggerMap(bloggersData || []);
+
+  if (!hadDay || !postsData) return;
+
+  // diff 新增帖子
+  const oldIds = new Set();
+  for (const card of postList.querySelectorAll(".post-card")) {
+    const id = card.id.replace("post-", "");
+    if (id) oldIds.add(id);
+  }
+  const scrollTop = postList.scrollTop;
+  const newPosts = postsData.posts.filter(p => !oldIds.has(p.mblogid));
+
+  if (newPosts.length > 0) {
+    // 新增卡片 prepend（微博列表按时间倒序，最新在前）
+    for (let i = newPosts.length - 1; i >= 0; i--) {
+      const card = renderCard(newPosts[i]);
+      card.classList.add("post-highlight");
+      postList.insertBefore(card, postList.firstChild);
+      setTimeout(() => card.classList.remove("post-highlight"), 2000);
+    }
+    // 更新计数
+    dayIndicator.textContent = `${currentDay}  共 ${postsData.posts.length} 条`;
+    // 显示提示条
+    showNewPostsBanner(newPosts.length);
+  }
+
+  // 恢复滚动位置（prepend 新卡片会下推已有内容）
+  postList.scrollTop = scrollTop;
+}
+
+// 局部更新左侧日期树：已存在月份更新计数，新月份插入，保留展开态
+function refreshDateTree(monthsData) {
+  // 清空 monthCache 让下次 toggleMonth 重新拉取（日期计数可能变了）
+  for (const k of Object.keys(monthCache)) delete monthCache[k];
+
+  const existing = new Map();
+  for (const grp of dateList.querySelectorAll(".month-group")) {
+    existing.set(grp.dataset.month, grp);
+  }
+  for (const m of monthsData) {
+    let grp = existing.get(m.month);
+    if (grp) {
+      // 更新计数
+      const cntEl = grp.querySelector(".month-header .count");
+      if (cntEl) cntEl.textContent = `(${m.count})`;
+    } else {
+      // 新月份：插入到列表（monthsData 已倒序，按出现顺序追加即可）
+      grp = document.createElement("div");
+      grp.className = "month-group";
+      grp.dataset.month = m.month;
+      grp.innerHTML =
+        `<div class="month-header">${escHtml(m.month)} <span class="count">(${m.count})</span></div>` +
+        `<div class="month-days"></div>`;
+      grp.querySelector(".month-header").addEventListener("click", () => toggleMonth(grp, m.month));
+      dateList.appendChild(grp);
+    }
+  }
+  // 月份在 monthsData 中消失的情况不处理（微博不会删，极少见）
+}
+
+// 更新 bloggerMap（新博主加入 / 头像名字变化更新），不重渲染下拉
+function refreshBloggerMap(bloggersData) {
+  for (const b of bloggersData) {
+    bloggerMap[b.uid] = b;
+  }
+}
 
 // ── 同步按钮（增量抓取，后台子进程）────
 const syncBtn = $("sync-btn");
