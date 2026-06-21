@@ -187,6 +187,9 @@ async function selectDay(date, itemEl) {
   dayIndicator.textContent = `${date}  加载中…`;
   postList.innerHTML = "";
   emptyHint.hidden = true;
+  // 切换日期：清掉上一日的待插入新帖提示
+  pendingNewPosts = [];
+  dismissNewPostsBanner();
 
   let data;
   try {
@@ -458,24 +461,32 @@ async function jumpToPost(date, mblogid) {
 // ── 新增条目提示条 ───────────────────
 const newPostsBanner = $("new-posts-banner");
 const newPostsBannerText = newPostsBanner.querySelector(".npb-text");
+let pendingNewPosts = [];  // 同步后发现的新帖，暂存等用户点提示条再插入
 
 function showNewPostsBanner(count) {
-  newPostsBannerText.textContent = `新增 ${count} 条微博`;
+  newPostsBannerText.textContent = `新增 ${count} 条微博，点击查看`;
   newPostsBanner.hidden = false;
 }
 
 function dismissNewPostsBanner() {
   newPostsBanner.hidden = true;
+  pendingNewPosts = [];
 }
 
-// 点提示条（非关闭按钮）：滚动到第一条新增帖子并高亮
+// 点提示条：插入暂存的新帖，滚到顶部并高亮
 newPostsBanner.addEventListener("click", (e) => {
   if (e.target.classList.contains("npb-close")) return;
-  const firstNew = postList.querySelector(".post-card.post-highlight")
-    || postList.querySelector(".post-card");
-  if (firstNew) {
-    firstNew.scrollIntoView({ block: "center", behavior: "smooth" });
+  if (pendingNewPosts.length === 0) return;
+  // 新增卡片 prepend（微博列表按时间倒序，最新在前）
+  for (let i = pendingNewPosts.length - 1; i >= 0; i--) {
+    const card = renderCard(pendingNewPosts[i]);
+    card.classList.add("post-highlight");
+    postList.insertBefore(card, postList.firstChild);
+    setTimeout(() => card.classList.remove("post-highlight"), 2000);
   }
+  pendingNewPosts = [];
+  dismissNewPostsBanner();
+  postList.scrollTo({ top: 0, behavior: "smooth" });
 });
 
 // 关闭按钮
@@ -508,31 +519,22 @@ async function silentRefresh() {
 
   if (!hadDay || !postsData) return;
 
-  // diff 新增帖子
+  // diff 新增帖子（与已渲染卡片 + 暂存待插入的做对比）
   const oldIds = new Set();
   for (const card of postList.querySelectorAll(".post-card")) {
     const id = card.id.replace("post-", "");
     if (id) oldIds.add(id);
   }
-  const scrollTop = postList.scrollTop;
+  for (const p of pendingNewPosts) oldIds.add(p.mblogid);
   const newPosts = postsData.posts.filter(p => !oldIds.has(p.mblogid));
 
   if (newPosts.length > 0) {
-    // 新增卡片 prepend（微博列表按时间倒序，最新在前）
-    for (let i = newPosts.length - 1; i >= 0; i--) {
-      const card = renderCard(newPosts[i]);
-      card.classList.add("post-highlight");
-      postList.insertBefore(card, postList.firstChild);
-      setTimeout(() => card.classList.remove("post-highlight"), 2000);
-    }
-    // 更新计数
+    // 暂存新帖，只显示提示条，不立即插入 DOM（不打断阅读）
+    pendingNewPosts = newPosts.concat(pendingNewPosts);
+    // 更新计数（含待插入的新帖）
     dayIndicator.textContent = `${currentDay}  共 ${postsData.posts.length} 条`;
-    // 显示提示条
-    showNewPostsBanner(newPosts.length);
+    showNewPostsBanner(pendingNewPosts.length);
   }
-
-  // 恢复滚动位置（prepend 新卡片会下推已有内容）
-  postList.scrollTop = scrollTop;
 }
 
 // 局部更新左侧日期树：已存在月份更新计数，新月份插入，保留展开态
