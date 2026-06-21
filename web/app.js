@@ -482,12 +482,14 @@ function dismissNewPostsBanner() {
 newPostsBanner.addEventListener("click", (e) => {
   if (e.target.classList.contains("npb-close")) return;
   if (pendingNewPosts.length === 0) return;
-  // 新增卡片 prepend（微博列表按时间倒序，最新在前）
-  for (let i = pendingNewPosts.length - 1; i >= 0; i--) {
-    const card = renderCard(pendingNewPosts[i]);
+  // 提示条始终保持在最上方；新卡片插到提示条之后，最新在前（pendingNewPosts 已倒序）
+  let anchor = newPostsBanner;
+  for (const p of pendingNewPosts) {
+    const card = renderCard(p);
     card.classList.add("post-highlight");
-    postList.insertBefore(card, postList.firstChild);
+    anchor.after(card);
     setTimeout(() => card.classList.remove("post-highlight"), 2000);
+    anchor = card;  // 下一张插到这张后面，保持最新在前的顺序
   }
   pendingNewPosts = [];
   dismissNewPostsBanner();
