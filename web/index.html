@@ -11,6 +11,11 @@
     <select id="blogger-select" title="选择博主"></select>
     <button id="search-btn" type="button" title="关键词 + 时间范围搜索">🔍 高级搜索</button>
     <button id="sync-btn" type="button" title="增量同步新微博">🔄 同步</button>
+    <label id="auto-refresh-toggle" class="ar-toggle" title="每分钟自动同步一次">
+      <input type="checkbox" id="auto-refresh-check" checked>
+      <span class="ar-track"><span class="ar-thumb"></span></span>
+      <span class="ar-label">自动刷新</span>
+    </label>
     <span id="status"></span>
   </div>
 
@@ -21,7 +26,12 @@
 
     <section id="viewer">
       <div id="day-indicator"></div>
-      <div id="post-list"></div>
+      <div id="post-list">
+        <div id="new-posts-banner" hidden>
+          <span class="npb-text"></span>
+          <button class="npb-close" type="button" title="关闭">×</button>
+        </div>
+      </div>
       <div id="empty-hint" hidden></div>
     </section>
   </div>
