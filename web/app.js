@@ -623,6 +623,44 @@ async function pollSync() {
   }
 }
 
+// ── 自动刷新（每 60 秒，默认开启）─────
+const autoRefreshCheck = $("auto-refresh-check");
+let autoRefreshTimer = null;
+const AUTO_REFRESH_INTERVAL = 60 * 1000;
+
+function startAutoRefresh() {
+  if (autoRefreshTimer) return;
+  autoRefreshTimer = setInterval(autoRefreshTick, AUTO_REFRESH_INTERVAL);
+}
+
+function stopAutoRefresh() {
+  if (autoRefreshTimer) {
+    clearInterval(autoRefreshTimer);
+    autoRefreshTimer = null;
+  }
+}
+
+async function autoRefreshTick() {
+  // 已有同步在跑则跳过，避免并发
+  try {
+    const st = await (await fetch("/api/sync/status")).json();
+    if (st.running) return;
+  } catch (e) {
+    return;  // 状态查询失败，跳过本次
+  }
+  runSync();
+}
+
+autoRefreshCheck.addEventListener("change", () => {
+  if (autoRefreshCheck.checked) {
+    // 开启：立即同步一次，然后启动定时器
+    runSync();
+    startAutoRefresh();
+  } else {
+    stopAutoRefresh();
+  }
+});
+
 // ── 初始化 ────────────────────────────
 (async function init() {
   await loadBloggers();
@@ -643,4 +681,6 @@ async function pollSync() {
     emptyHint.textContent = "无微博数据";
     emptyHint.hidden = false;
   }
+  // 默认开启自动刷新
+  startAutoRefresh();
 })();
