@@ -251,12 +251,9 @@ function renderCard(p) {
     `</div>`;
 
   // 正文（URL 转可点击链接，含 t.cn 短链）
-  // 转发微博：text_raw 末尾的「 //@用户名:原微博内容」与引用块重复，截掉
-  let bodyText = p.text_raw || "";
-  if (p.retweeted) {
-    const cut = bodyText.search(/\s*\/\/@/);
-    if (cut >= 0) bodyText = bodyText.slice(0, cut);
-  }
+  // 转发微博的 text_raw 可能含「 //@用户名:...」嵌套引用，完整保留不截断
+  // （原微博在下方 retweeted 引用块单独展示，不靠截断去重）
+  const bodyText = p.text_raw || "";
   // 长文微博：text_raw 是 long_text 的截断前缀，只显示 long_text（完整版），避免重复
   if (p.is_long_text && p.long_text) {
     html += `<div class="post-text">${linkify(escHtml(p.long_text))}</div>`;
