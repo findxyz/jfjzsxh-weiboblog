@@ -455,13 +455,20 @@ async function jumpToPost(date, mblogid) {
   });
 }
 
+// 静默刷新：同步成功后局部更新当前视图（Task 4 实现）
+async function silentRefresh() { /* 占位，Task 4 替换 */ }
+
 // ── 同步按钮（增量抓取，后台子进程）────
 const syncBtn = $("sync-btn");
 let syncPollTimer = null;
+// 同步进行中标志：避免手动+自动并发触发
+let syncInProgress = false;
 
-syncBtn.addEventListener("click", async () => {
+async function runSync() {
+  if (syncInProgress) return;
+  syncInProgress = true;
   syncBtn.disabled = true;
-  syncBtn.textContent = "同步中...";
+  syncBtn.textContent = "🔄 同步中...";
   try {
     const resp = await fetch("/api/sync", { method: "POST" });
     if (resp.status === 409) {
@@ -470,15 +477,17 @@ syncBtn.addEventListener("click", async () => {
       throw new Error("同步启动失败");
     }
   } catch (e) {
+    syncInProgress = false;
     syncBtn.disabled = false;
     syncBtn.textContent = "🔄 同步";
     setStatus("同步启动失败");
     return;
   }
-  // 轮询状态，每 2 秒
   syncPollTimer = setInterval(pollSync, 2000);
   pollSync();
-});
+}
+
+syncBtn.addEventListener("click", () => runSync());
 
 async function pollSync() {
   try {
@@ -486,11 +495,12 @@ async function pollSync() {
     if (!data.running) {
       clearInterval(syncPollTimer);
       syncPollTimer = null;
+      syncInProgress = false;
+      syncBtn.disabled = false;
+      syncBtn.textContent = "🔄 同步";
       if (data.exit_code === 0) {
-        location.reload();  // 同步成功，刷新页面
+        await silentRefresh();  // 静默更新，不再 location.reload()
       } else {
-        syncBtn.disabled = false;
-        syncBtn.textContent = "🔄 同步";
         setStatus("同步失败（exit " + data.exit_code + "），请查看日志");
       }
     }
