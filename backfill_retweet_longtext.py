@@ -1,7 +1,9 @@
 """回填历史转发微博的长文原微博内容。
 
-扫描 weibo_posts 中 retweeted_json 非空的记录，对原微博 is_long_text=1 且
-long_text 为空的，逐条调 longtext 接口补全并 UPDATE。慢速抖动，避免风控。
+历史 retweeted_json 由旧 parser 生成，不含 is_long_text 字段，故从 raw_json
+的 retweeted_status.isLongText 判断原微博是否长文。对长文且 long_text 为空的，
+逐条调 longtext 接口补全，并把 is_long_text/long_text 一起写回 retweeted_json
+（让前端能识别）。慢速抖动，避免风控。
 """
 import json
 import sqlite3
@@ -18,7 +20,7 @@ def main(db_path: str) -> None:
     conn = crawler.conn
     conn.row_factory = sqlite3.Row
     rows = conn.execute(
-        "SELECT id, retweeted_json FROM weibo_posts WHERE retweeted_json != ''"
+        "SELECT id, raw_json, retweeted_json FROM weibo_posts WHERE retweeted_json != ''"
     ).fetchall()
 
     filled = skipped_done = skipped_notlong = failed = 0
@@ -27,6 +29,13 @@ def main(db_path: str) -> None:
             rt = json.loads(r["retweeted_json"])
         except (ValueError, TypeError):
             continue
+        # 历史数据 retweeted_json 无 is_long_text，从 raw_json 判断
+        if "is_long_text" not in rt:
+            try:
+                raw = json.loads(r["raw_json"])
+                rt["is_long_text"] = 1 if (raw.get("retweeted_status") or {}).get("isLongText") else 0
+            except (ValueError, TypeError):
+                rt["is_long_text"] = 0
         if not rt.get("is_long_text"):
             skipped_notlong += 1
             continue
