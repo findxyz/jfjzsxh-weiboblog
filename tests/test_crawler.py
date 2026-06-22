@@ -267,3 +267,49 @@ def test_date_to_timestamp_start():
 def test_date_to_timestamp_end():
     """'2012-12-31' end_of_day=True → 1356969599（当日 23:59:59 +0800）"""
     assert _date_to_timestamp("2012-12-31", end_of_day=True) == 1356969599
+
+
+def test_fetch_searchprofile_parses_response(monkeypatch):
+    """fetch_searchprofile 返回 (list, total)，params 含 starttime/endtime/has*，无 since_id"""
+    cr, conn = make_crawler(monkeypatch)
+    sample = load_fixture("post_plain.json")
+    fake_resp = MagicMock()
+    fake_resp.status_code = 200
+    fake_resp.json.return_value = {
+        "ok": 1,
+        "data": {"total": "934", "list": [sample]},
+    }
+    fake_resp.raise_for_status = MagicMock()
+    with patch.object(cr.session, "get", return_value=fake_resp) as mock_get:
+        posts, total = cr.fetch_searchprofile(
+            uid=1401527553, page=1, starttime=1325347200, endtime=1356969599)
+    assert total == 934
+    assert len(posts) == 1
+    assert posts[0]["mblogid"] == "PrP6QqqEQ"
+    kwargs = mock_get.call_args.kwargs
+    assert kwargs["params"]["starttime"] == 1325347200
+    assert kwargs["params"]["endtime"] == 1356969599
+    assert kwargs["params"]["hasori"] == 1
+    assert kwargs["params"]["hasret"] == 1
+    assert kwargs["params"]["hastext"] == 1
+    assert kwargs["params"]["haspic"] == 1
+    assert kwargs["params"]["hasvideo"] == 1
+    assert kwargs["params"]["hasmusic"] == 1
+    assert "since_id" not in kwargs["params"]
+
+
+def test_fetch_searchprofile_total_string(monkeypatch):
+    """total 是字符串 '934'，应转成 int 934"""
+    cr, conn = make_crawler(monkeypatch)
+    fake_resp = MagicMock()
+    fake_resp.status_code = 200
+    fake_resp.json.return_value = {
+        "ok": 1,
+        "data": {"total": "934", "list": []},
+    }
+    fake_resp.raise_for_status = MagicMock()
+    with patch.object(cr.session, "get", return_value=fake_resp):
+        posts, total = cr.fetch_searchprofile(
+            uid=1401527553, page=1, starttime=1325347200, endtime=1356969599)
+    assert total == 934
+    assert posts == []

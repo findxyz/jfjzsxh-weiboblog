@@ -151,6 +151,29 @@ class BlogCrawler:
         )
         return resp.json().get("data", {}).get("longTextContent", "") or ""
 
+    def fetch_searchprofile(self, uid: int, page: int,
+                            starttime: int, endtime: int) -> tuple[list[dict], int]:
+        """调用 searchProfile 接口，返回 (posts_raw_list, total)
+
+        返回的 list 内部是「新→旧」排列（首条最新），与 mymblog 相反。
+        total 是该时间范围内的微博总数（字符串转 int），仅用于日志展示；
+        翻页终止以 list 为空为准。
+        """
+        params = {
+            "uid": uid, "page": page,
+            "starttime": starttime, "endtime": endtime,
+            "hasori": 1, "hasret": 1, "hastext": 1,
+            "haspic": 1, "hasvideo": 1, "hasmusic": 1,
+        }
+        self.session.headers["referer"] = f"{API_BASE}/u/{uid}"
+        resp = _request_with_retry(
+            self.session, "GET", f"{API_BASE}/ajax/statuses/searchProfile",
+            params=params, timeout=15,
+        )
+        data = resp.json().get("data", {}) or {}
+        total = int(data.get("total", 0) or 0)  # "934" → 934
+        return data.get("list", []) or [], total
+
     # ── 编排：全量回填 ───────────────────────────────
 
     def crawl_blog_backfill(self, uid: int, start_page: int = 1) -> dict:
