@@ -254,3 +254,16 @@ def test_is_logged_in_evaluate_raises():
     page = MagicMock()
     page.evaluate.side_effect = Exception("page closed")
     assert _is_logged_in(page) is False
+
+
+from weibo_blog.crawler import _date_to_timestamp
+
+
+def test_date_to_timestamp_start():
+    """'2012-01-01' → 1325347200（当日 00:00:00 +0800）"""
+    assert _date_to_timestamp("2012-01-01") == 1325347200
+
+
+def test_date_to_timestamp_end():
+    """'2012-12-31' end_of_day=True → 1356969599（当日 23:59:59 +0800）"""
+    assert _date_to_timestamp("2012-12-31", end_of_day=True) == 1356969599

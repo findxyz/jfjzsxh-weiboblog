@@ -11,6 +11,7 @@ import subprocess
 
 import requests
 import urllib3
+from datetime import datetime, timezone, timedelta
 
 from .parser import parse_post, parse_blogger
 from .db import (
@@ -23,6 +24,18 @@ urllib3.disable_warnings()
 log = logging.getLogger("weibo_blog.crawler")
 
 API_BASE = "https://weibo.com"
+
+CST = timezone(timedelta(hours=8))
+
+
+def _date_to_timestamp(date_str: str, end_of_day: bool = False) -> int:
+    """'2012-01-01' → 1325347200（当日 00:00:00 +0800）
+    end_of_day=True → 当日 23:59:59 +0800（如 '2012-12-31' → 1356969599）
+    """
+    dt = datetime.strptime(date_str, "%Y-%m-%d")
+    if end_of_day:
+        dt = dt.replace(hour=23, minute=59, second=59)
+    return int(dt.replace(tzinfo=CST).timestamp())
 
 
 def _jitter_sleep(base: float, jitter: float = 0.2):
