@@ -80,6 +80,7 @@ urllib3.disable_warnings()
 | 1 | 扫码登录页 | GET | `https://api.weibo.com/chat` | 无 | 取得 Cookie |
 | 2 | 博主微博列表 | GET | `https://weibo.com/ajax/statuses/mymblog` | Cookie | 翻页拉微博 |
 | 3 | 长文全文 | GET | `https://weibo.com/ajax/statuses/longtext` | Cookie | 补全长文 |
+| 4 | 按时间范围搜索博主微博 | GET | `https://weibo.com/ajax/statuses/searchProfile` | Cookie | 时间范围抓取 |
 
 > **接口顺序**：先用 ① 拿 Cookie → 用 ② 翻页拉微博 → 对 `isLongText=true` 的用 ③ 补全文。
 
@@ -276,6 +277,77 @@ list[-1]  = 这一页里最新的微博  →  停止条件判定（增量模式�
 |------|------|
 | 补全失败 | 捕获异常，记 warning，`long_text` 留空，不中断整体抓取 |
 | 频率 | 跟随翻页节奏（每条长文一个请求） |
+
+---
+
+### 2.4 按时间范围搜索博主微博（searchProfile）
+
+| 项 | 值 |
+|----|-----|
+| URL | `https://weibo.com/ajax/statuses/searchProfile` |
+| 方法 | `GET` |
+| 鉴权 | Cookie（需含 `SUB`） |
+| 返回 | JSON |
+
+**Query 参数**
+
+| 参数 | 类型 | 必需 | 说明 |
+|------|------|------|------|
+| `uid` | int | 是 | 博主 uid |
+| `page` | int | 是 | 页码，递增取更旧 |
+| `starttime` | int | 是 | 起始秒级时间戳（+0800） |
+| `endtime` | int | 是 | 结束秒级时间戳（+0800） |
+| `hasori` | int | 是 | 含原创，固定 1 |
+| `hasret` | int | 是 | 含转发，固定 1 |
+| `hastext` | int | 是 | 含文本，固定 1 |
+| `haspic` | int | 是 | 含图片，固定 1 |
+| `hasvideo` | int | 是 | 含视频，固定 1 |
+| `hasmusic` | int | 是 | 含音乐，固定 1 |
+
+**成功响应（200）**
+
+```json
+{
+  "ok": 1,
+  "data": {
+    "total": "934",
+    "absstr": "",
+    "list": [ {mblog}, ... ]
+  }
+}
+```
+
+**字段语义**
+
+| 字段 | 类型 | 含义 | 备注 |
+|------|------|------|------|
+| `total` | string | 时间范围内微博总数 | 字符串需转 int；仅日志参考，不精确 |
+| `absstr` | string | 摘要 | 实测为空 |
+| `list` | array | mblog 数组 | 结构与 §2.2 mymblog 一致，可复用 `parse_post` |
+
+**关键差异（与 §2.2 mymblog 对比）**
+
+| 维度 | mymblog | searchProfile |
+|------|---------|---------------|
+| list 内部排序 | 旧→新（首条最旧） | **新→旧**（首条最新） |
+| 分页游标 | since_id（必须回传） | **无**，纯 page 翻页 |
+| 时间范围 | 无 | starttime/endtime |
+| 414 降级 | 有（since_id 导致 URI 过长） | **不需要**（无 since_id，URL 短） |
+
+**前置条件**
+
+- Cookie 有效。
+- `uid` 是公开可见的博主。
+- `starttime`/`endtime` 用秒级时间戳（非毫秒），时区 +0800。
+
+**注意事项**
+
+| 场景 | 表现/处理 |
+|------|----------|
+| Cookie 失效 | 200 但 `list` 为空（与 mymblog 一致） |
+| 时间范围内无微博 | `list` 为空（与 cookie 失效无法区分） |
+| 翻页终止 | `list` 为空即到底 |
+| 频率建议 | 每页间 ≥ 0.5s（带 ±20% 抖动） |
 
 ---
 
