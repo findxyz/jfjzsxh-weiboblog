@@ -93,7 +93,7 @@ crawl_blog.main()
   │
   ├─ 若 --start/--end → BlogCrawler(db_path)
   │                       └─ crawl_blog_by_range(uid, start_date, end_date)
-  │                            └─ fetch_searchprofile 翻页
+  │                            └─ 按日拆分 → fetch_searchprofile 逐日翻页
   │
   └─ 否则 → BlogCrawler(db_path)
               └─ crawl_blog(uid, full)
@@ -151,7 +151,7 @@ crawl_blog.main()
 | `crawl_blog_incremental(uid)` | 增量（跳过已存，末条已存整页停） |
 | `crawl_blog(uid, full)` | 模式判断入口 |
 | `fetch_searchprofile(uid, page, starttime, endtime)` | §2.4 searchProfile → (list, total) |
-| `crawl_blog_by_range(uid, start_date, end_date)` | 按时间范围抓取（补全历史缺口） |
+| `crawl_blog_by_range(uid, start_date, end_date)` | 按时间范围抓取（按日拆分，补全历史缺口） |
 
 #### `weibo_blog/parser.py` — 解析层
 
@@ -258,27 +258,35 @@ page=N   list 为空 → 到底
 
 ### 5.3 按时间范围抓取（searchProfile）
 
-与 mymblog 的 page 翻页不同点：
+范围 `start_date ~ end_date` **按日拆分**：逐日以当天 00:00:00~23:59:59 为
+starttime/endtime 调 searchProfile，逐页翻到 list 空。按日拆分是为了规避按月/按年
+大范围翻页时分页边界丢数据的问题（实测按月会丢，单日数据量通常 ≤ 50 条一页即完）。
 
 ```
-searchProfile：
-   page=1   时间范围内最新的一屏（list 内部新→旧）
+逐日 day ∈ [start_date, end_date]：
+   starttime = day 00:00:00 +0800
+   endtime   = day 23:59:59 +0800
+   page=1   当天最新的一屏（list 内部新→旧）
    page=2   更旧的一屏
-   page=N   list 为空 → 到底
+   page=N   list 为空 → 当天到底，进入下一天
 ```
 
 **与全量回填的差异：**
 
 | 维度 | 全量回填 | 按时间范围 |
 |------|---------|-----------|
+| 时间粒度 | 无（全部历史） | **按日拆分**，每天独立翻页 |
 | list 方向 | 旧→新 | 新→旧（不影响逐条处理） |
 | since_id | 必须回传 + 414 降级 | 无（纯 page） |
-| 停止判断 | list 空 | list 空（同） |
+| 停止判断 | list 空 | list 空（同，每天一次） |
 | post_id 比较 | 增量模式用 | **不用**（范围已由时间限定） |
 | start_page | 支持（断点续抓） | 不支持（重跑靠 mblogid 去重） |
 | total 字段 | 无 | 有（仅日志参考） |
+| 单日失败 | — | 不中断整体（告警跳过当日，已抓不丢） |
 
-**不用 post_id 做停止判断**：范围已由 starttime/endtime 限定，翻到 list 空就是到底。去重仍靠 mblogid UNIQUE + INSERT OR IGNORE 兜底（三层去重的第 3 层）。
+**不用 post_id 做停止判断**：范围已由 starttime/endtime 限定，翻到 list 空就是当天
+到底。去重仍靠 mblogid UNIQUE + INSERT OR IGNORE 兜底（三层去重的第 3 层），跨天
+重复的微博也会被去重。
 
 ---
 

@@ -316,52 +316,136 @@ def test_fetch_searchprofile_total_string(monkeypatch):
 
 
 def test_crawl_blog_by_range(monkeypatch):
-    """范围抓取：两页后空，入库正确，首页提取博主，长文补全被调用"""
+    """范围抓取：按日拆分，逐日翻页到空，入库正确，首页提取博主，长文补全被调用。
+
+    用 2 天范围（2012-01-01 ~ 2012-01-02）验证：每天独立调 searchProfile，
+    每天返回一页有数据 + 一页空。两天返回相同微博，靠 mblogid 去重，第二天
+    不重复入库。
+    """
     cr, conn = make_crawler(monkeypatch)
     plain = load_fixture("post_plain.json")
     longp = load_fixture("post_longtext.json")
-    page1 = ([plain, longp], 934)
-    page2 = ([], 934)
-    pages = iter([page1, page2])
+    # 每天两页：第一页有数据，第二页空
+    day_pages = [([plain, longp], 934), ([], 934)]
+    # 2 天 × 2 页 = 4 次调用
+    pages = iter(day_pages * 2)
     with patch.object(cr, "fetch_searchprofile",
                       side_effect=lambda *a, **k: next(pages)), \
          patch.object(cr, "fetch_longtext", return_value="长文全文") as mock_lt:
         result = cr.crawl_blog_by_range(uid=1401527553,
                                         start_date="2012-01-01",
-                                        end_date="2012-12-31")
+                                        end_date="2012-01-02")
+    # 两天返回相同微博，mblogid 去重后只入库 2 条（第一天全部，第二天全重复）
     assert result["new"] == 2
-    assert mock_lt.call_count == 1  # 只有 longp 是长文
+    assert mock_lt.call_count == 2  # 每天都会尝试补全 longp 长文（fetch 在 save 前）
     row = conn.execute("SELECT screen_name FROM bloggers WHERE uid=1401527553").fetchone()
     assert row["screen_name"] == "tombkeeper"
 
 
-def test_crawl_blog_by_range_empty(monkeypatch):
-    """page=1 就空 list：返回 new=0，不抛错（可能是范围无微博或 cookie 失效）"""
+def test_crawl_blog_by_range_single_day(monkeypatch):
+    """单日范围：start==end，只抓一天，翻页到空停止。"""
     cr, conn = make_crawler(monkeypatch)
-    with patch.object(cr, "fetch_searchprofile", return_value=([], 0)):
-        result = cr.crawl_blog_by_range(uid=1401527553,
-                                        start_date="2012-01-01",
-                                        end_date="2012-12-31")
-    assert result["new"] == 0
-
-
-def test_crawl_blog_by_range_dedup(monkeypatch):
-    """范围内微博已部分存在：mblogid 去重，只入库新的"""
-    cr, conn = make_crawler(monkeypatch)
-    plain = load_fixture("post_plain.json")        # post_id=5166313246299004
-    longp = load_fixture("post_longtext.json")     # post_id=5165832909360655
-    # 预存 plain（视为已知）
-    save_post(conn, parse_post(plain))
-    # page1: [plain(已存), longp(新)]，page2 空
-    page1 = ([plain, longp], 934)
-    page2 = ([], 934)
-    pages = iter([page1, page2])
+    plain = load_fixture("post_plain.json")
+    pages = iter([([plain], 1), ([], 1)])
     with patch.object(cr, "fetch_searchprofile",
                       side_effect=lambda *a, **k: next(pages)), \
          patch.object(cr, "fetch_longtext", return_value=""):
         result = cr.crawl_blog_by_range(uid=1401527553,
                                         start_date="2012-01-01",
-                                        end_date="2012-12-31")
-    assert result["new"] == 1  # 只 longp 新增
+                                        end_date="2012-01-01")
+    assert result["new"] == 1
+
+
+def test_crawl_blog_by_range_passes_day_bounds(monkeypatch):
+    """按日拆分：每天传给 fetch_searchprofile 的是当天 00:00:00~23:59:59 时间戳，
+    而非整个范围的起止。验证 starttime/endtime 与日期对应。"""
+    cr, conn = make_crawler(monkeypatch)
+    captured = []
+    pages = iter([([], 0), ([], 0)])  # 两天都空
+
+    def fake_fetch(uid, page, starttime, endtime):
+        captured.append((starttime, endtime))
+        return next(pages)
+
+    with patch.object(cr, "fetch_searchprofile", side_effect=fake_fetch):
+        cr.crawl_blog_by_range(uid=1401527553,
+                               start_date="2012-01-01",
+                               end_date="2012-01-02")
+    # 2012-01-01: 00:00:00 +0800 = 1325347200, 23:59:59 = 1325433599
+    # 2012-01-02: 00:00:00 +0800 = 1325433600, 23:59:59 = 1325519999
+    assert captured[0] == (1325347200, 1325433599)
+    assert captured[1] == (1325433600, 1325519999)
+
+
+def test_crawl_blog_by_range_empty(monkeypatch):
+    """每一天都空 list：返回 new=0，不抛错（范围无微博或 cookie 失效）"""
+    cr, conn = make_crawler(monkeypatch)
+    with patch.object(cr, "fetch_searchprofile", return_value=([], 0)):
+        result = cr.crawl_blog_by_range(uid=1401527553,
+                                        start_date="2012-01-01",
+                                        end_date="2012-01-03")
+    assert result["new"] == 0
+
+
+def test_crawl_blog_by_range_dedup(monkeypatch):
+    """范围内微博已部分存在：mblogid 去重，只入库新的（跨天重复也去重）"""
+    cr, conn = make_crawler(monkeypatch)
+    plain = load_fixture("post_plain.json")        # post_id=5166313246299004
+    longp = load_fixture("post_longtext.json")     # post_id=5165832909360655
+    # 预存 plain（视为已知）
+    save_post(conn, parse_post(plain))
+    # 两天都返回 [plain(已存), longp(新)]，验证跨天去重
+    day_pages = [([plain, longp], 934), ([], 934)]
+    pages = iter(day_pages * 2)
+    with patch.object(cr, "fetch_searchprofile",
+                      side_effect=lambda *a, **k: next(pages)), \
+         patch.object(cr, "fetch_longtext", return_value=""):
+        result = cr.crawl_blog_by_range(uid=1401527553,
+                                        start_date="2012-01-01",
+                                        end_date="2012-01-02")
+    # 第一天 longp 新增，第二天 longp 重复（mblogid 去重）→ 只入库 1 条
+    assert result["new"] == 1
     cnt = conn.execute("SELECT COUNT(*) FROM weibo_posts").fetchone()[0]
-    assert cnt == 2
+    assert cnt == 2  # plain(预存) + longp(新)
+
+
+def test_crawl_blog_by_range_day_failure_continues(monkeypatch):
+    """某天抓取异常不中断整体：记录告警跳过当日，后续天继续。"""
+    cr, conn = make_crawler(monkeypatch)
+    plain = load_fixture("post_plain.json")
+    # Day1 正常（一页有 + 一页空），Day2 抛异常，Day3 正常
+    day1 = [([plain], 1), ([], 1)]
+    day3 = [([plain], 1)]  # plain 已存，mblogid 去重 → new=0
+    pages = iter(day1 + [RuntimeError("network error")] + day3)
+    fetched = []
+
+    def fake_fetch(*a, **k):
+        item = next(pages)
+        fetched.append(item)
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+    with patch.object(cr, "fetch_searchprofile", side_effect=fake_fetch), \
+         patch.object(cr, "fetch_longtext", return_value=""):
+        result = cr.crawl_blog_by_range(uid=1401527553,
+                                        start_date="2012-01-01",
+                                        end_date="2012-01-03")
+    assert result["new"] == 1  # Day1 的 plain，Day3 的 plain 去重为 0
+
+
+def test_crawl_blog_by_range_swaps_reversed_dates(monkeypatch):
+    """start > end 时容错交换，不报错。"""
+    cr, conn = make_crawler(monkeypatch)
+    captured = []
+
+    def fake_fetch(uid, page, starttime, endtime):
+        captured.append(starttime)
+        return [], 0
+
+    with patch.object(cr, "fetch_searchprofile", side_effect=fake_fetch):
+        cr.crawl_blog_by_range(uid=1401527553,
+                               start_date="2012-01-03",
+                               end_date="2012-01-01")
+    # 三天，按时间正序：01-01, 01-02, 01-03
+    assert captured == [1325347200, 1325433600, 1325520000]
