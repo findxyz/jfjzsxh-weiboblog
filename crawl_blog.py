@@ -32,6 +32,10 @@ def main():
     parser.add_argument("--full", action="store_true", help="全量回填（而非增量）")
     parser.add_argument("--start-page", type=int, default=1,
                         help="全量回填起始页码（断点续抓，如上次 414 停在 962 则 --start-page 963）")
+    parser.add_argument("--start", default="",
+                        help="起始日期 YYYY-MM-DD（与 --end 配合，按时间范围抓取）")
+    parser.add_argument("--end", default="",
+                        help="结束日期 YYYY-MM-DD（含当天，与 --start 配合）")
     parser.add_argument("--all", action="store_true", help="增量抓取所有已存博主")
     parser.add_argument("--renew-cookie", action="store_true", help="浏览器扫码续期 cookie")
     parser.add_argument("--check-playwright", action="store_true",
@@ -60,6 +64,26 @@ def main():
         from weibo_blog.crawler import renew_cookie
         cookie = renew_cookie(db_path=args.db, headless=args.headless)
         print(f"cookie 已续期并保存到 {args.db}（长度 {len(cookie)}）")
+        return
+
+    # --start/--end：按时间范围抓取
+    if args.start or args.end:
+        if not (args.start and args.end):
+            parser.error("--start 和 --end 必须同时指定")
+        if args.full:
+            parser.error("--start/--end 与 --full 互斥")
+        if args.all:
+            parser.error("--start/--end 与 --all 互斥")
+        if not args.uid:
+            parser.error("--start/--end 需配合 --uid")
+        from datetime import datetime as _dt
+        d1 = _dt.strptime(args.start, "%Y-%m-%d")
+        d2 = _dt.strptime(args.end, "%Y-%m-%d")
+        if d1 > d2:
+            parser.error("--start 不能晚于 --end")
+        crawler = BlogCrawler(db_path=args.db)
+        result = crawler.crawl_blog_by_range(args.uid, args.start, args.end)
+        print(f"uid={args.uid} {args.start}~{args.end}: 新增 {result['new']} 条")
         return
 
     # 抓取模式
