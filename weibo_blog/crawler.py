@@ -283,6 +283,63 @@ class BlogCrawler:
             log.info("  增量完成 uid=%d: +%d 条", uid, new_count)
         return {"new": new_count, "total": new_count}
 
+    # ── 编排：按时间范围抓取 ───────────────────────
+
+    def crawl_blog_by_range(self, uid: int, start_date: str, end_date: str) -> dict:
+        """按时间范围抓取（补全历史缺口）。
+
+        用 searchProfile 接口，page=1 翻到 list 空。list 新→旧，逐条 parse_post
+        → 长文补全 → save_post（mblogid 去重）。数据入 weibo_posts 表，与
+        mymblog 抓取的数据混存，靠 mblogid UNIQUE 去重。
+        """
+        starttime = _date_to_timestamp(start_date, end_of_day=False)
+        endtime = _date_to_timestamp(end_date, end_of_day=True)
+
+        new_count = 0
+        page = 1
+        blogger_saved = False
+        total = 0
+
+        while True:
+            try:
+                posts, total = self.fetch_searchprofile(uid, page, starttime, endtime)
+            except requests.HTTPError as e:
+                if e.response is not None and e.response.status_code == 414:
+                    log.warning("  page %d 触发 414，停止，已抓 %d 条", page, new_count)
+                    break
+                raise
+            if not posts:
+                break
+
+            # 首页提取博主信息（复用 parse_blogger）
+            if not blogger_saved and posts[0].get("user"):
+                save_blogger(self.conn, parse_blogger(posts[0]["user"]))
+                blogger_saved = True
+            if page == 1 and total:
+                log.info("  范围 %s~%s 预计 %d 条", start_date, end_date, total)
+
+            for raw in posts:  # list 新→旧，逐条处理
+                parsed = parse_post(raw)
+                if parsed["is_long_text"]:
+                    try:
+                        parsed["long_text"] = self.fetch_longtext(parsed["mblogid"])
+                    except Exception as e:
+                        log.warning("  长文补全失败 mblogid=%s: %s", parsed["mblogid"], e)
+                try:
+                    self._fill_retweet_longtext(parsed)
+                except Exception as e:
+                    log.warning("  转发长文补全失败 mblogid=%s: %s", parsed["mblogid"], e)
+                if save_post(self.conn, parsed):
+                    new_count += 1
+
+            log.info("  page %d: +%d (累计 %d/%s)", page, len(posts), new_count,
+                     total or "?")
+            page += 1
+            _jitter_sleep(0.5)
+
+        log.info("  范围抓取完成 uid=%d %s~%s: %d 条", uid, start_date, end_date, new_count)
+        return {"new": new_count, "total": new_count}
+
     def crawl_blog(self, uid: int, full: bool = False, start_page: int = 1) -> dict:
         """抓取博主微博。full=True 或无已存数据 → 全量回填，否则增量。
 
