@@ -91,6 +91,10 @@ crawl_blog.main()
   │
   ├─ 若 --set-cookie → db.set_cookie() → return
   │
+  ├─ 若 --start/--end → BlogCrawler(db_path)
+  │                       └─ crawl_blog_by_range(uid, start_date, end_date)
+  │                            └─ fetch_searchprofile 翻页
+  │
   └─ 否则 → BlogCrawler(db_path)
               └─ crawl_blog(uid, full)
                    ├─ full=True 或无已存 → crawl_blog_backfill()
@@ -146,6 +150,8 @@ crawl_blog.main()
 | `crawl_blog_backfill(uid)` | 全量回填（page=1→空） |
 | `crawl_blog_incremental(uid)` | 增量（跳过已存，末条已存整页停） |
 | `crawl_blog(uid, full)` | 模式判断入口 |
+| `fetch_searchprofile(uid, page, starttime, endtime)` | §2.4 searchProfile → (list, total) |
+| `crawl_blog_by_range(uid, start_date, end_date)` | 按时间范围抓取（补全历史缺口） |
 
 #### `weibo_blog/parser.py` — 解析层
 
@@ -249,6 +255,30 @@ page=N   list 为空 → 到底
 429 限流：      backoff = 4^attempt × (1 + rand[0, 0.5])
 4xx 其他：      不重试
 ```
+
+### 5.3 按时间范围抓取（searchProfile）
+
+与 mymblog 的 page 翻页不同点：
+
+```
+searchProfile：
+   page=1   时间范围内最新的一屏（list 内部新→旧）
+   page=2   更旧的一屏
+   page=N   list 为空 → 到底
+```
+
+**与全量回填的差异：**
+
+| 维度 | 全量回填 | 按时间范围 |
+|------|---------|-----------|
+| list 方向 | 旧→新 | 新→旧（不影响逐条处理） |
+| since_id | 必须回传 + 414 降级 | 无（纯 page） |
+| 停止判断 | list 空 | list 空（同） |
+| post_id 比较 | 增量模式用 | **不用**（范围已由时间限定） |
+| start_page | 支持（断点续抓） | 不支持（重跑靠 mblogid 去重） |
+| total 字段 | 无 | 有（仅日志参考） |
+
+**不用 post_id 做停止判断**：范围已由 starttime/endtime 限定，翻到 list 空就是到底。去重仍靠 mblogid UNIQUE + INSERT OR IGNORE 兜底（三层去重的第 3 层）。
 
 ---
 
