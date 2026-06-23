@@ -253,8 +253,10 @@ function renderCard(p) {
   const profileUrl = b && b.profile_url ? b.profile_url : "#";
   const avatarUrl = b && b.avatar ? b.avatar : "";
   const authorName = b ? (b.screen_name || `uid:${p.uid}`) : `uid:${p.uid}`;
-  const avatarHtml = avatarUrl
-    ? `<img class="avatar" src="${escHtml(avatarUrl)}" alt="" onerror="this.style.display='none'">`
+  // 头像走 server 代理带 Referer，绕 sinaimg 防盗链（直链会 403，同正文图片）
+  const avatarSrc = avatarUrl ? `/api/img?url=${encodeURIComponent(avatarUrl)}` : "";
+  const avatarHtml = avatarSrc
+    ? `<img class="avatar" src="${escHtml(avatarSrc)}" alt="" onerror="this.style.display='none'">`
     : "";
   let html = `<div class="post-head">` +
     `<div class="post-author">` +
