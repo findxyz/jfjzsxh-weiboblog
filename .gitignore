@@ -11,3 +11,4 @@ server.log
 nul
 # 调试临时文件
 _ck.txt
+.worktrees/
