@@ -15,7 +15,7 @@ import logging
 import sqlite3
 import sys
 
-from weibo_blog.crawler import BlogCrawler
+from weibo_blog.crawler import BlogCrawler, CookieExpiredError
 from weibo_blog.db import init_db, set_cookie, get_blogger_list
 
 
@@ -101,9 +101,21 @@ def main():
             try:
                 result = crawler.crawl_blog(b["uid"])
                 print(f"[{b['screen_name']}] +{result['new']}")
+            except CookieExpiredError:
+                raise
             except Exception as e:
                 logging.warning("uid=%s 抓取失败: %s", b["uid"], e)
 
 
+def cli():
+    try:
+        main()
+    except CookieExpiredError:
+        logging.error(
+            "Cookie 已过期，请运行: uv run crawl_blog.py --renew-cookie"
+        )
+        raise SystemExit(2)
+
+
 if __name__ == "__main__":
-    main()
+    cli()

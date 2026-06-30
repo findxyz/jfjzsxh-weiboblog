@@ -4,6 +4,7 @@ import os
 import requests
 from unittest.mock import patch, MagicMock
 import pytest
+import weibo_blog.crawler as crawler_module
 from weibo_blog.crawler import BlogCrawler, _is_logged_in
 from weibo_blog.parser import parse_post
 
@@ -46,6 +47,37 @@ def test_fetch_mymblog_parses_response(monkeypatch):
     assert kwargs["params"]["uid"] == 1401527553
     assert kwargs["params"]["page"] == 1
     assert kwargs["params"]["feature"] == 0
+
+
+def test_fetch_mymblog_raises_only_on_explicit_login_redirect(monkeypatch):
+    cr, conn = make_crawler(monkeypatch)
+    fake_resp = MagicMock()
+    fake_resp.status_code = 200
+    fake_resp.url = "https://login.sina.com.cn/sso/login.php"
+    fake_resp.json.return_value = {}
+    fake_resp.raise_for_status = MagicMock()
+
+    with patch.object(cr.session, "get", return_value=fake_resp):
+        with pytest.raises(crawler_module.CookieExpiredError):
+            cr.fetch_mymblog(uid=1401527553, page=1)
+
+
+def test_fetch_mymblog_empty_list_is_not_cookie_expiry(monkeypatch):
+    cr, conn = make_crawler(monkeypatch)
+    fake_resp = MagicMock()
+    fake_resp.status_code = 200
+    fake_resp.url = "https://weibo.com/ajax/statuses/mymblog"
+    fake_resp.json.return_value = {
+        "ok": 1,
+        "data": {"since_id": "", "list": []},
+    }
+    fake_resp.raise_for_status = MagicMock()
+
+    with patch.object(cr.session, "get", return_value=fake_resp):
+        since_id, posts = cr.fetch_mymblog(uid=1401527553, page=2)
+
+    assert since_id == ""
+    assert posts == []
 
 
 def test_fetch_mymblog_sends_since_id_param(monkeypatch):
@@ -385,6 +417,35 @@ def test_crawl_blog_by_range_empty(monkeypatch):
                                         start_date="2012-01-01",
                                         end_date="2012-01-03")
     assert result["new"] == 0
+
+
+def test_crawl_blog_by_range_does_not_swallow_cookie_expiry(monkeypatch):
+    cr, conn = make_crawler(monkeypatch)
+    with patch.object(
+        cr,
+        "fetch_searchprofile",
+        side_effect=crawler_module.CookieExpiredError("expired"),
+    ):
+        with pytest.raises(crawler_module.CookieExpiredError):
+            cr.crawl_blog_by_range(
+                uid=1401527553,
+                start_date="2012-01-01",
+                end_date="2012-01-01",
+            )
+
+
+def test_backfill_does_not_swallow_cookie_expiry_from_longtext(monkeypatch):
+    cr, conn = make_crawler(monkeypatch)
+    longp = load_fixture("post_longtext.json")
+    pages = iter([("", [longp]), ("", [])])
+    with patch.object(cr, "fetch_mymblog", side_effect=lambda *a, **k: next(pages)), \
+         patch.object(
+             cr,
+             "fetch_longtext",
+             side_effect=crawler_module.CookieExpiredError("expired"),
+         ):
+        with pytest.raises(crawler_module.CookieExpiredError):
+            cr.crawl_blog_backfill(uid=1401527553)
 
 
 def test_crawl_blog_by_range_dedup(monkeypatch):

@@ -8,6 +8,7 @@ import time
 import random
 import logging
 import subprocess
+from urllib.parse import urlparse
 
 import requests
 import urllib3
@@ -26,6 +27,28 @@ log = logging.getLogger("weibo_blog.crawler")
 API_BASE = "https://weibo.com"
 
 CST = timezone(timedelta(hours=8))
+
+
+class CookieExpiredError(RuntimeError):
+    """微博明确返回登录态失效时抛出。"""
+
+
+def _response_json(resp) -> dict:
+    """解析微博响应；只对明确的登录跳转/鉴权错误判定 Cookie 过期。"""
+    final_url = getattr(resp, "url", "")
+    if isinstance(final_url, str):
+        parsed = urlparse(final_url)
+        host = parsed.hostname or ""
+        path = parsed.path.lower()
+        if host in {"login.sina.com.cn", "passport.weibo.com"} or (
+            host in {"weibo.com", "www.weibo.com"} and path.startswith("/login")
+        ):
+            raise CookieExpiredError("微博 Cookie 已过期")
+
+    data = resp.json()
+    if str(data.get("error_code", "")) == "21301":
+        raise CookieExpiredError("微博 Cookie 已过期")
+    return data
 
 
 def _date_to_timestamp(date_str: str, end_of_day: bool = False) -> int:
@@ -139,7 +162,7 @@ class BlogCrawler:
                 )
             else:
                 raise
-        data = resp.json().get("data", {}) or {}
+        data = _response_json(resp).get("data", {}) or {}
         return data.get("since_id", "") or "", data.get("list", []) or []
 
     def fetch_longtext(self, mblogid: str) -> str:
@@ -149,7 +172,7 @@ class BlogCrawler:
             self.session, "GET", f"{API_BASE}/ajax/statuses/longtext",
             params={"id": mblogid}, timeout=15,
         )
-        return resp.json().get("data", {}).get("longTextContent", "") or ""
+        return _response_json(resp).get("data", {}).get("longTextContent", "") or ""
 
     def fetch_searchprofile(self, uid: int, page: int,
                             starttime: int, endtime: int) -> tuple[list[dict], int]:
@@ -170,7 +193,7 @@ class BlogCrawler:
             self.session, "GET", f"{API_BASE}/ajax/statuses/searchProfile",
             params=params, timeout=15,
         )
-        data = resp.json().get("data", {}) or {}
+        data = _response_json(resp).get("data", {}) or {}
         total = int(data.get("total", 0) or 0)  # "934" → 934
         return data.get("list", []) or [], total
 
@@ -208,10 +231,14 @@ class BlogCrawler:
                 if parsed["is_long_text"]:
                     try:
                         parsed["long_text"] = self.fetch_longtext(parsed["mblogid"])
+                    except CookieExpiredError:
+                        raise
                     except Exception as e:
                         log.warning("  长文补全失败 mblogid=%s: %s", parsed["mblogid"], e)
                 try:
                     self._fill_retweet_longtext(parsed)
+                except CookieExpiredError:
+                    raise
                 except Exception as e:
                     log.warning("  转发长文补全失败 mblogid=%s: %s", parsed["mblogid"], e)
                 if save_post(self.conn, parsed):
@@ -262,10 +289,14 @@ class BlogCrawler:
                 if parsed["is_long_text"]:
                     try:
                         parsed["long_text"] = self.fetch_longtext(parsed["mblogid"])
+                    except CookieExpiredError:
+                        raise
                     except Exception as e:
                         log.warning("  长文补全失败 mblogid=%s: %s", parsed["mblogid"], e)
                 try:
                     self._fill_retweet_longtext(parsed)
+                except CookieExpiredError:
+                    raise
                 except Exception as e:
                     log.warning("  转发长文补全失败 mblogid=%s: %s", parsed["mblogid"], e)
                 if save_post(self.conn, parsed):
@@ -338,11 +369,15 @@ class BlogCrawler:
                         if parsed["is_long_text"]:
                             try:
                                 parsed["long_text"] = self.fetch_longtext(parsed["mblogid"])
+                            except CookieExpiredError:
+                                raise
                             except Exception as e:
                                 log.warning("  长文补全失败 mblogid=%s: %s",
                                             parsed["mblogid"], e)
                         try:
                             self._fill_retweet_longtext(parsed)
+                        except CookieExpiredError:
+                            raise
                         except Exception as e:
                             log.warning("  转发长文补全失败 mblogid=%s: %s",
                                         parsed["mblogid"], e)
@@ -353,6 +388,8 @@ class BlogCrawler:
                              day_str, page, len(posts), day_new, day_total or "?")
                     page += 1
                     _jitter_sleep(0.5)
+            except CookieExpiredError:
+                raise
             except Exception as e:
                 log.warning("  %s 抓取失败: %s（跳过当日，已抓不丢）", day_str, e)
 
