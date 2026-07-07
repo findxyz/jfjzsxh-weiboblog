@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sys
 import json
 import time
@@ -109,6 +110,11 @@ class BlogCrawler:
         if not self.cookie:
             raise RuntimeError("Cookie 未设置。请先运行: uv run crawl_blog.py --set-cookie '...'")
         self.session = self._make_session(self.cookie)
+        # 主动续期 cookie（仅当距上次登录超过 5 天时触发）
+        new_cookie = maybe_renew_cookie(self.cookie, self.session, self.conn)
+        if new_cookie:
+            self.cookie = new_cookie
+            self.session = self._make_session(self.cookie)
 
     def _make_session(self, cookie: str) -> requests.Session:
         s = requests.Session()
@@ -122,7 +128,12 @@ class BlogCrawler:
             ),
             "x-requested-with": "XMLHttpRequest",
         })
-        s.headers["Cookie"] = cookie
+        # 写进 session.cookies（jar）而非 headers['Cookie']：微博 SSO 续期
+        # 链会在响应里 Set-Cookie 下发刷新后的 SUB/SUBP，jar 方式才能自动接收。
+        for part in cookie.split("; "):
+            if "=" in part:
+                k, v = part.split("=", 1)
+                s.cookies.set(k, v)
         return s
 
     def _fill_retweet_longtext(self, parsed: dict) -> None:
@@ -410,6 +421,96 @@ class BlogCrawler:
         if full or get_latest_post_id(self.conn, uid) is None:
             return self.crawl_blog_backfill(uid, start_page=start_page)
         return self.crawl_blog_incremental(uid)
+
+
+# ── cookie 自动续期（HTTP，无需扫码） ───────────────
+
+# 距登录多久后开始主动续期（秒）。SUB 实测寿命约 6 天，留 1 天余量。
+_RENEW_THRESHOLD_SEC = 5 * 86400
+
+
+def _serialize_cookies(session: requests.Session) -> str:
+    """把 session.cookies 序列化回 'k=v; k=v' 字符串。"""
+    return "; ".join(f"{c.name}={c.value}" for c in session.cookies)
+
+
+def _renew_sub_cookie(session: requests.Session) -> bool:
+    """主动触发微博 SSO 续期链（复刻 ssologin.js 的 updateCookie 逻辑）。
+
+    用独立临时 session 跑，避免各域 Set-Cookie 污染主 session。只把刷新后的
+    SUB/SUBP/SSOLoginState/ALF 合并回主 session。服务端自动判断是否需要换
+    SUB（cookie 太新则不换）。返回 True 表示续期链走通；False 表示已失效。
+    """
+    sso_base = "https://login.sina.com.cn/sso"
+    tmp = requests.Session()
+    tmp.verify = False
+    for part in _serialize_cookies(session).split("; "):
+        if "=" in part:
+            k, v = part.split("=", 1)
+            tmp.cookies.set(k, v)
+    try:
+        tmp.get(f"{sso_base}/updatetgt.php",
+                params={"entry": "account", "callback": "cb"},
+                timeout=15)
+        r = tmp.get(f"{sso_base}/crossdomain.php",
+                    params={"action": "login", "domain": "sina.com.cn",
+                            "callback": "cb", "sr": "1920*1080"},
+                    timeout=15)
+        m = re.search(r'"arrURL":\[([^\]]*)\]', r.text)
+        if not m:
+            log.warning("cookie 续期：crossdomain 未返回 arrURL")
+            return False
+        urls = json.loads("[" + m.group(1) + "]")
+        for u in urls:
+            tmp.get(u, params={"callback": "cb"}, timeout=15)
+    except Exception as e:
+        log.warning("cookie 续期失败（可能已过期）: %s", e)
+        return False
+    renewed = False
+    for name in ("SUB", "SUBP", "SSOLoginState", "ALF"):
+        candidates = [c for c in tmp.cookies if c.name == name
+                       and (c.domain is None or "weibo.com" in (c.domain or ""))]
+        if not candidates:
+            candidates = [c for c in tmp.cookies if c.name == name]
+        if not candidates:
+            continue
+        new_val = candidates[0].value
+        old_val = session.cookies.get(name)
+        if new_val and new_val != old_val:
+            session.cookies.set(name, new_val)
+            renewed = True
+    if renewed:
+        log.info("cookie 续期成功，已更新关键字段")
+    else:
+        log.info("cookie 续期链完成（服务端判断无需换 SUB，cookie 仍有效）")
+    return True
+
+
+def maybe_renew_cookie(cookie: str, session: requests.Session,
+                       conn) -> str | None:
+    """距上次登录超过阈值才触发续期，避免每次爬取都调续期链。
+
+    续期后若有字段更新，写回 DB 并返回新 cookie；否则返回 None。
+    """
+    sso = ""
+    for part in cookie.split("; "):
+        if part.startswith("SSOLoginState="):
+            sso = part.split("=", 1)[1]
+            break
+    if sso:
+        try:
+            age = time.time() - int(sso)
+        except ValueError:
+            age = 0
+        if age < _RENEW_THRESHOLD_SEC:
+            return None
+    if not _renew_sub_cookie(session):
+        return None
+    new_cookie = _serialize_cookies(session)
+    if new_cookie != cookie:
+        set_cookie(conn, new_cookie)
+        return new_cookie
+    return None
 
 
 # ── cookie 续期（Playwright 扫码） ─────────────────

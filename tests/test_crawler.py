@@ -510,3 +510,139 @@ def test_crawl_blog_by_range_swaps_reversed_dates(monkeypatch):
                                end_date="2012-01-01")
     # 三天，按时间正序：01-01, 01-02, 01-03
     assert captured == [1325347200, 1325433600, 1325520000]
+
+
+# ── make_session cookie jar + 自动续期测试 ──────────
+
+def test_make_session_uses_cookie_jar_not_headers():
+    """_make_session 应把 cookie 写进 session.cookies 而非 headers['Cookie']。"""
+    from weibo_blog.crawler import BlogCrawler
+    s = BlogCrawler._make_session(None, "SUB=abc123; SUBP=def456")  # type: ignore
+    assert s.cookies.get("SUB") == "abc123"
+    assert s.cookies.get("SUBP") == "def456"
+    assert "Cookie" not in s.headers
+
+
+def test_make_session_empty_parts_skipped():
+    """空片段（如尾部多余的 '; '）不应导致异常"""
+    from weibo_blog.crawler import BlogCrawler
+    s = BlogCrawler._make_session(None, "SUB=abc; ")  # type: ignore
+    assert s.cookies.get("SUB") == "abc"
+
+
+def test_serialize_cookies_roundtrip():
+    from weibo_blog.crawler import BlogCrawler, _serialize_cookies
+    s = BlogCrawler._make_session(None, "SUB=abc; SUBP=def")  # type: ignore
+    serialized = _serialize_cookies(s)
+    s2 = BlogCrawler._make_session(None, serialized)  # type: ignore
+    assert s2.cookies.get("SUB") == "abc"
+    assert s2.cookies.get("SUBP") == "def"
+
+
+def test_renew_sub_cookie_success():
+    """续期链全通（retcode:0 + arrURL）→ 返回 True"""
+    from weibo_blog.crawler import BlogCrawler, _renew_sub_cookie, _serialize_cookies
+
+    crossdomain_text = (
+        'cb({"retcode":0,"arrURL":'
+        '["https://passport.weibo.com/wbsso/crossdomain?action=login",'
+        '"https://passport.weibo.cn/sso/crossdomain?action=login"]})'
+    )
+    main_session = BlogCrawler._make_session(None, "SUB=old; SUBP=old")  # type: ignore
+
+    fake_make = MagicMock()
+    tmp_session = MagicMock()
+    tmp_session.cookies = main_session.cookies  # 简化：共享 jar
+    calls = {"count": 0}
+
+    def fake_get(url, **kwargs):
+        calls["count"] += 1
+        r = MagicMock()
+        r.text = 'cb({"retcode":0})' if "updatetgt" in url else (
+            crossdomain_text if "crossdomain.php" in url else 'cb({"retcode":0})')
+        return r
+    tmp_session.get = fake_get
+    fake_make.return_value = tmp_session
+
+    with patch("weibo_blog.crawler.requests.Session", fake_make):
+        result = _renew_sub_cookie(main_session)
+    assert result is True
+
+
+def test_renew_sub_cookie_no_arrurl_returns_false():
+    """crossdomain 未返回 arrURL → 返回 False"""
+    from weibo_blog.crawler import BlogCrawler, _renew_sub_cookie
+    main_session = BlogCrawler._make_session(None, "SUB=old")  # type: ignore
+
+    def fake_get(url, **kwargs):
+        r = MagicMock()
+        r.text = 'cb({"retcode":500})' if "crossdomain" in url else 'cb({"retcode":0})'
+        return r
+
+    fake_make = MagicMock()
+    tmp = MagicMock()
+    tmp.get = fake_get
+    tmp.cookies = main_session.cookies
+    fake_make.return_value = tmp
+
+    with patch("weibo_blog.crawler.requests.Session", fake_make):
+        result = _renew_sub_cookie(main_session)
+    assert result is False
+
+
+def test_renew_sub_cookie_network_error_returns_false():
+    """网络异常 → 返回 False（不抛出）"""
+    from weibo_blog.crawler import BlogCrawler, _renew_sub_cookie
+    main_session = BlogCrawler._make_session(None, "SUB=old")  # type: ignore
+
+    def raise_error(url, **kwargs):
+        raise requests.ConnectionError("network down")
+
+    fake_make = MagicMock()
+    tmp = MagicMock()
+    tmp.get = raise_error
+    tmp.cookies = main_session.cookies
+    fake_make.return_value = tmp
+
+    with patch("weibo_blog.crawler.requests.Session", fake_make):
+        result = _renew_sub_cookie(main_session)
+    assert result is False
+
+
+def test_maybe_renew_skips_when_cookie_too_new():
+    """距登录 < 5 天 → 跳过续期，返回 None"""
+    import time as _time
+    from weibo_blog.crawler import maybe_renew_cookie
+    now = int(_time.time())
+    cookie = f"SUB=abc; SSOLoginState={now}"  # 刚登录
+    session = MagicMock()
+    conn = MagicMock()
+    assert maybe_renew_cookie(cookie, session, conn) is None
+    conn.execute.assert_not_called()  # 没写 DB
+
+
+def test_maybe_renew_triggers_when_cookie_old():
+    """距登录 > 5 天 → 触发续期"""
+    from weibo_blog.crawler import maybe_renew_cookie
+    old_ts = 1000000  # 1970 年，远超 5 天
+    cookie = f"SUB=abc; SSOLoginState={old_ts}"
+    session = MagicMock()
+    conn = MagicMock()
+    with patch("weibo_blog.crawler._renew_sub_cookie", return_value=True):
+        with patch("weibo_blog.crawler._serialize_cookies", return_value="SUB=new"):
+            result = maybe_renew_cookie(cookie, session, conn)
+    assert result == "SUB=new"
+    conn.execute.assert_called()  # 写了 DB
+
+
+def test_maybe_renew_no_change_returns_none():
+    """续期成功但 cookie 没变 → 返回 None，不写 DB"""
+    from weibo_blog.crawler import maybe_renew_cookie
+    old_ts = 1000000
+    cookie = f"SUB=abc; SSOLoginState={old_ts}"
+    session = MagicMock()
+    conn = MagicMock()
+    with patch("weibo_blog.crawler._renew_sub_cookie", return_value=True):
+        with patch("weibo_blog.crawler._serialize_cookies", return_value=cookie):
+            result = maybe_renew_cookie(cookie, session, conn)
+    assert result is None
