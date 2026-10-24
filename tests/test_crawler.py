@@ -646,3 +646,40 @@ def test_maybe_renew_no_change_returns_none():
         with patch("weibo_blog.crawler._serialize_cookies", return_value=cookie):
             result = maybe_renew_cookie(cookie, session, conn)
     assert result is None
+
+
+def _fake_resp(status, payload=None):
+    """构造带 raise_for_status 行为的假响应。"""
+    r = MagicMock()
+    r.status_code = status
+    r.url = "https://weibo.com/ajax/statuses/longtext"
+    if payload is None:
+        r.raise_for_status.side_effect = requests.HTTPError(response=r)
+        r.json.return_value = {}
+    else:
+        r.raise_for_status = MagicMock()
+        r.json.return_value = payload
+    return r
+
+
+def test_fetch_longtext_retries_414_then_succeeds(monkeypatch):
+    """长文接口 414 后应退避重试并成功。"""
+    cr, conn = make_crawler(monkeypatch)
+    ok = _fake_resp(200, {"ok": 1, "data": {"longTextContent": "全文"}})
+    with patch.object(cr.session, "get", side_effect=[_fake_resp(414), ok]) as get, \
+         patch("weibo_blog.crawler.time.sleep"):
+        assert cr.fetch_longtext("RnAII6DRZ") == "全文"
+    assert get.call_count == 2
+    assert "longtext" in get.call_args_list[0].args[0]
+
+
+def test_fetch_longtext_falls_back_to_mobile(monkeypatch):
+    """PC 接口连续失败时，应改用 m.weibo.cn 兜底。"""
+    cr, conn = make_crawler(monkeypatch)
+    ok = _fake_resp(200, {"ok": 1, "data": {"longTextContent": "移动端全文"}})
+    with patch.object(cr.session, "get",
+                      side_effect=[_fake_resp(414), _fake_resp(414), _fake_resp(414), ok]) as get, \
+         patch("weibo_blog.crawler.time.sleep"):
+        assert cr.fetch_longtext("RnAII6DRZ") == "移动端全文"
+    assert get.call_count == 4
+    assert "m.weibo.cn" in get.call_args_list[-1].args[0]

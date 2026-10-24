@@ -6,7 +6,7 @@
 
 - 全量回填博主历史微博（page=1 翻到空为止，无年限限制）
 - 增量更新：只拉比已存最新一条更新的微博，末条已存则整页停止
-- 长文自动补全（`isLongText` 时调 longtext 接口取全文）
+- 长文自动补全（`isLongText` 时调 longtext 接口取全文；414/403/429 自动退避重试，仍失败回落 `m.weibo.cn`）
 - 图片 / 视频 / 转发原微博精简存储（只留必要字段 + 原始 JSON 备份）
 - Playwright 扫码登录续期 cookie（有头弹窗 / 无头截图二选一）
 - 复用微博账号 cookie，无需 x-xsrf-token
@@ -136,7 +136,7 @@ uv run crawl_blog.py --uid 1401527553
 - `mymblog` 接口 list 内部是**旧 → 新**排列（第一条最旧，末条最新）；**page 递增 = 取更旧**。
 - 比较新旧用 `post_id`（数字 id，单调递增），不用时间戳。
 - 去重双保险：`post_id <= latest` 跳过（省请求）+ `INSERT OR IGNORE`（mblogid 唯一键兜底）。
-- 长文（`isLongText=true`）逐条调 longtext 接口补全 `long_text` 字段。
+- 长文（`isLongText=true`）逐条调 longtext 接口补全 `long_text` 字段；接口 414/403/429 时退避重试，再失败用移动端接口兜底。
 - 首页第一条的 `user` 字段用于提取博主信息入库 `bloggers` 表。
 - 请求间带抖动 `_jitter_sleep(0.5s ± 20%)`，规避固定间隔频控。
 - `since_id` 是服务端分页游标，必须回传；深翻（数百页）偶发 414 Request-URI
@@ -160,6 +160,24 @@ uv run crawl_blog.py --uid 1401527553
 - 与 `--full`/`--all` 互斥，必须配合 `--uid`。
 - 重跑同一范围不会重复入库（mblogid 去重）；某天抓取失败不会中断整体，会告警
   跳过当日继续下一天，已抓数据不丢。
+
+### 4.3.1 长文补全修复
+
+抓取时若 longtext 接口被限流（日志里的 `414 Client Error: Request-URI Too Large`），
+`long_text` 会为空、`text_raw` 停在截断处。项目自带修复脚本，默认 dry-run：
+
+```bash
+# 查看前 10 条待修
+uv run repair_longtext.py --limit 10
+# 修主帖（--execute 才写库）
+uv run repair_longtext.py --limit 200 --sleep 0.9 --execute
+# 只修转发原帖
+uv run repair_longtext.py --only-retweets --limit 200 --execute
+# 指定博主
+uv run repair_longtext.py --uid 1401527553 --limit 2000 --execute
+```
+
+脚本会退避重试、回落到 `m.weibo.cn`；只有拿到非空全文才写库，失败条目可下次重跑。
 
 ### 4.4 关于全量回填的耗时
 

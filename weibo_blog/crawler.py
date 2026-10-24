@@ -26,6 +26,7 @@ urllib3.disable_warnings()
 log = logging.getLogger("weibo_blog.crawler")
 
 API_BASE = "https://weibo.com"
+M_BASE = "https://m.weibo.cn"
 
 CST = timezone(timedelta(hours=8))
 
@@ -177,13 +178,52 @@ class BlogCrawler:
         return data.get("since_id", "") or "", data.get("list", []) or []
 
     def fetch_longtext(self, mblogid: str) -> str:
-        """调用 longtext 接口，返回长文全文"""
-        self.session.headers["referer"] = f"{API_BASE}/"
-        resp = _request_with_retry(
-            self.session, "GET", f"{API_BASE}/ajax/statuses/longtext",
-            params={"id": mblogid}, timeout=15,
-        )
-        return _response_json(resp).get("data", {}).get("longTextContent", "") or ""
+        """调用 longtext 接口，返回长文全文。
+
+        微博在密集翻页时会对本接口返回 414/403/429（风控，并非真的
+        URI 过长），实测同一 URL 稍后重试即可成功。这里做指数退避
+        重试；仍失败则改用 m.weibo.cn 的 extend 接口兜底。两种接口都
+        失败时返回空串，由调用方记 warning，不中断整轮抓取。
+        """
+        mblogid = (mblogid or "").strip()
+        if not mblogid:
+            return ""
+        for attempt in range(3):
+            try:
+                self.session.headers["referer"] = f"{API_BASE}/"
+                resp = _request_with_retry(
+                    self.session, "GET", f"{API_BASE}/ajax/statuses/longtext",
+                    params={"id": mblogid}, timeout=15,
+                )
+                return _response_json(resp).get("data", {}).get("longTextContent", "") or ""
+            except CookieExpiredError:
+                raise
+            except requests.HTTPError as e:
+                status = e.response.status_code if e.response is not None else 0
+                if status in (403, 414, 429) or status >= 500:
+                    wait = (2 ** attempt) * 1.2 + random.uniform(0, 0.8)
+                    log.warning("  长文接口 %s，%.1fs 后重试 %d/3（%s）",
+                                status, wait, attempt + 1, mblogid)
+                    time.sleep(wait)
+                    continue
+                log.warning("  长文接口 %s，不再重试（%s）", status, mblogid)
+                break
+            except (requests.ConnectionError, requests.Timeout):
+                time.sleep((2 ** attempt) * 0.8 + random.uniform(0, 0.5))
+                continue
+        # 移动端兜底
+        try:
+            resp = _request_with_retry(
+                self.session, "GET", f"{M_BASE}/statuses/extend",
+                params={"id": mblogid},
+                headers={"referer": f"{M_BASE}/"}, timeout=15,
+            )
+            return _response_json(resp).get("data", {}).get("longTextContent", "") or ""
+        except CookieExpiredError:
+            raise
+        except Exception as e:
+            log.warning("  长文移动端兜底失败 mblogid=%s: %s", mblogid, e)
+            return ""
 
     def fetch_searchprofile(self, uid: int, page: int,
                             starttime: int, endtime: int) -> tuple[list[dict], int]:
